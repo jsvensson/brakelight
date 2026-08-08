@@ -1,0 +1,188 @@
+{{ define "queue.html" }}
+<div class="service-header">
+    <div class="service-status">
+        Encoding:
+        {{ if .EncodingActive }}
+        <span class="status-badge active">Active</span>
+        {{ else }}
+        <span class="status-badge inactive">Paused</span>
+        {{ end }}
+        <button
+            hx-post="/service/encoding/toggle"
+            hx-target="#queue"
+            {{ if .EncodingActive }}class="danger"{{ end }}>
+            {{ if .EncodingActive }}Pause{{ else }}Resume{{ end }}
+        </button>
+    </div>
+    <div class="service-status">
+        Scanning:
+        {{ if .ScanningActive }}
+        <span class="status-badge active">Active</span>
+        {{ else }}
+        <span class="status-badge inactive">Paused</span>
+        {{ end }}
+        <button
+            hx-post="/service/scanning/toggle"
+            hx-target="#queue"
+            {{ if .ScanningActive }}class="danger"{{ end }}>
+            {{ if .ScanningActive }}Pause{{ else }}Resume{{ end }}
+        </button>
+    </div>
+</div>
+
+{{ if not .EncodingActive }}
+<div class="paused-banner">
+    Encoding is paused. New conversions will not start. Any currently running encode will finish.
+</div>
+{{ end }}
+{{ if not .ScanningActive }}
+<div class="paused-banner">
+    File scanning is paused. Watch directories are not being scanned for new files.
+</div>
+{{ end }}
+
+<div class="section">
+    <h2>Currently encoding</h2>
+    {{ if .Processing }}
+    <table>
+        <colgroup>
+            <col>
+            <col style="width: 9rem;">
+            <col style="width: 10rem;">
+        </colgroup>
+        <thead>
+            <tr><th>File</th><th>Watch</th><th>Started</th></tr>
+        </thead>
+        <tbody>
+            {{ range .Processing }}
+            <tr>
+                <td class="filename" title="{{ base .Filepath }}">{{ base .Filepath }}</td>
+                <td>{{ if .WatchName }}{{ .WatchName }}{{ else }}{{ .Preset }}{{ end }}</td>
+                <td>{{ formatTime .StartedAt }}</td>
+            </tr>
+            {{ end }}
+        </tbody>
+    </table>
+    {{ else }}
+    <div class="empty">Idle</div>
+    {{ end }}
+</div>
+
+<div class="section">
+    <h2>Queue</h2>
+    {{ if .Pending }}
+    <table>
+        <colgroup>
+            <col style="width: 2.5rem;">
+            <col>
+            <col style="width: 8rem;">
+            <col style="width: 10rem;">
+            <col style="width: 5rem;">
+            <col style="width: 12rem;">
+        </colgroup>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>File</th>
+                <th>Watch</th>
+                <th>Added</th>
+                <th>Attempts</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{ range $i, $job := .Pending }}
+            <tr>
+                <td>{{ add $i 1 }}</td>
+                <td class="filename" title="{{ base $job.Filepath }}">{{ base $job.Filepath }}</td>
+                <td>{{ if $job.WatchName }}{{ $job.WatchName }}{{ else }}{{ $job.Preset }}{{ end }}</td>
+                <td>{{ formatTime $job.CreatedAt }}</td>
+                <td>{{ $job.Attempts }}</td>
+                <td class="actions">
+                    <button {{ if eq $i 0 }}disabled{{ end }}
+                        hx-post="/queue/{{ $job.ID }}/move"
+                        hx-vals='{"index": 0}'
+                        hx-target="#queue">Top</button>
+                    <button {{ if eq $i 0 }}disabled{{ end }}
+                        hx-post="/queue/{{ $job.ID }}/move"
+                        hx-vals='{"index": {{ sub $i 1 }}}'
+                        hx-target="#queue">↑</button>
+                    <button {{ if eq $i (sub (len $.Pending) 1) }}disabled{{ end }}
+                        hx-post="/queue/{{ $job.ID }}/move"
+                        hx-vals='{"index": {{ add $i 1 }}}'
+                        hx-target="#queue">↓</button>
+                    <button class="danger"
+                        hx-post="/queue/{{ $job.ID }}/cancel"
+                        hx-confirm="Cancel this job?"
+                        hx-target="#queue">Cancel</button>
+                </td>
+            </tr>
+            {{ end }}
+        </tbody>
+    </table>
+    {{ else }}
+    <div class="empty">No pending jobs</div>
+    {{ end }}
+</div>
+
+<div class="section">
+    <h2>History</h2>
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:1rem; margin-bottom:1rem;">
+        {{ if .ReencodeRisk }}
+        <span class="reencode-warning">{{ .ReencodeRisk }} source file(s) in watch directories will be re-encoded if history is cleared</span>
+        {{ end }}
+        <button class="secondary danger"
+            hx-post="/history/clear"
+            hx-confirm="Clear all completed and failed jobs?{{ if .ReencodeRisk }} WARNING: {{ .ReencodeRisk }} source file(s) still in watch directories will be re-encoded.{{ end }}"
+            hx-target="#queue">Clear history</button>
+    </div>
+    {{ if .History }}
+    <table>
+        <colgroup>
+            <col>
+            <col style="width: 6rem;">
+            <col style="width: 10rem;">
+            <col style="width: 6rem;">
+        </colgroup>
+        <thead>
+            <tr><th>File</th><th>Status</th><th>Completed</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+            {{ range .History }}
+            <tr>
+                <td class="filename" title="{{ base .Filepath }}">{{ base .Filepath }}</td>
+                <td><span class="status {{ .Status }}">{{ .Status }}</span></td>
+                <td>{{ formatTime .CompletedAt }}</td>
+                <td class="actions">
+                    {{ if eq .Status "failed" }}
+                    <button hx-post="/queue/{{ .ID }}/retry" hx-target="#queue">Retry</button>
+                    {{ end }}
+                    <button class="secondary"
+                        hx-post="/history/{{ .ID }}/forget"
+                        hx-confirm="Remove from history? The source file will be re-encoded if it is still in a watch directory."
+                        hx-target="#queue">Forget</button>
+                </td>
+            </tr>
+            {{ if .ErrorMessage }}
+            <tr>
+                <td colspan="4" class="error-message">{{ .ErrorMessage }}</td>
+            </tr>
+            {{ end }}
+            {{ if .LogOutput }}
+            <tr>
+                <td colspan="4">
+                    <details>
+                        <summary>HandBrake output</summary>
+                        <div class="log-output">{{ .LogOutput }}</div>
+                    </details>
+                </td>
+            </tr>
+            {{ end }}
+            {{ end }}
+        </tbody>
+    </table>
+    {{ else }}
+    <div class="empty">No history</div>
+    {{ end }}
+</div>
+{{ end }}

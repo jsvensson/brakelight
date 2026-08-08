@@ -1,0 +1,14 @@
+{{ define "progress.html" }}
+{{ if .Active }}
+<div data-title="Brakelight: {{ printf "%.1f" .Percent }}% ({{ .Pending }} pending)">
+<div class="progress-bar">
+    <div class="progress-fill" style="width: {{ printf "%.2f" .Percent }}%"></div>
+</div>
+<div class="progress-text">
+    {{ printf "%.2f" .Percent }}% &middot; {{ printf "%.1f" .FPS }} fps &middot; ETA {{ .ETA }}{{ if gt .TaskCount 1 }} &middot; task {{ .Task }} of {{ .TaskCount }}{{ end }}
+</div>
+</div>
+{{ else }}
+<div class="empty" data-title="Brakelight">Idle</div>
+{{ end }}
+{{ end }}

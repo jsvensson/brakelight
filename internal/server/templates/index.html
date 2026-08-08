@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brakelight</title>
+    <script src="/htmx.min.js"></script>
+    <script>
+        document.addEventListener('htmx:sseMessage', function () {
+            var el = document.querySelector('#encode-progress [data-title]');
+            document.title = el ? el.getAttribute('data-title') : 'Brakelight';
+        });
+    </script>
+    <style>
+        :root {
+            /* Tokyo Night */
+            color-scheme: dark;
+            --bg: #1a1b26;
+            --surface: #24283b;
+            --border: #292e42;
+            --inset: #16161e;
+            --text: #c0caf5;
+            --muted: #565f89;
+            --log-text: #a9b1d6;
+            --accent: #7aa2f7;
+            --success: #9ece6a;
+            --error: #f7768e;
+            --warn: #e0af68;
+            --success-tint: rgba(158, 206, 106, 0.15);
+            --error-tint: rgba(247, 118, 142, 0.15);
+            --secondary: #414868;
+            --button-text: #16161e;
+        }
+        @media (prefers-color-scheme: light) {
+            :root {
+                /* Tokyo Night Day */
+                color-scheme: light;
+                --bg: #e1e2e7;
+                --surface: #d0d5e3;
+                --border: #c4c8da;
+                --inset: #d0d5e3;
+                --text: #3760bf;
+                --muted: #848cb5;
+                --log-text: #6172b0;
+                --accent: #2e7de9;
+                --success: #587539;
+                --error: #f52a65;
+                --warn: #8c6c3e;
+                --success-tint: rgba(88, 117, 53, 0.15);
+                --error-tint: rgba(245, 42, 101, 0.12);
+                --secondary: #a8aecb;
+                --button-text: #ffffff;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 2rem;
+            line-height: 1.5;
+        }
+        h1 { margin-top: 0; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        .section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+        .section h2 {
+            margin: 0 0 1rem;
+            font-size: 1.1rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td {
+            text-align: left;
+            padding: 0.6rem 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+        th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
+        tr:last-child td { border-bottom: none; }
+        .status { font-weight: 600; font-size: 0.85rem; }
+        .status.pending { color: var(--warn); }
+        .status.processing { color: var(--accent); }
+        .status.completed { color: var(--success); }
+        .status.failed { color: var(--error); }
+        .filename {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .actions { display: flex; gap: 0.4rem; align-items: center; }
+        button {
+            background: var(--accent);
+            color: var(--button-text);
+            border: none;
+            border-radius: 4px;
+            padding: 0.35rem 0.7rem;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        button:hover { filter: brightness(1.1); }
+        button.secondary { background: var(--secondary); }
+        button.danger { background: var(--error); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .service-header {
+            display: flex;
+            justify-content: flex-start;
+            gap: 3rem;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        .service-status {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.95rem;
+        }
+        .status-badge {
+            padding: 0.25rem 0.6rem;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .status-badge.active { background: var(--success-tint); color: var(--success); }
+        .status-badge.inactive { background: var(--error-tint); color: var(--error); }
+        .paused-banner {
+            background: var(--error-tint);
+            border: 1px solid var(--error);
+            color: var(--error);
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            margin-bottom: 1.5rem;
+        }
+        .progress-bar {
+            background: var(--inset);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            height: 14px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+        .progress-fill {
+            background: var(--accent);
+            height: 100%;
+            transition: width 0.8s linear;
+        }
+        .progress-text {
+            color: var(--muted);
+            font-size: 0.9rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .empty { color: var(--muted); padding: 1rem 0; }
+        .log-output {
+            background: var(--inset);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0.75rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.8rem;
+            max-height: 200px;
+            overflow: auto;
+            white-space: pre-wrap;
+            color: var(--log-text);
+        }
+        .error-message { color: var(--error); font-size: 0.85rem; margin-top: 0.25rem; }
+        .reencode-warning { color: var(--warn); font-size: 0.85rem; }
+        .drag-handle { cursor: grab; color: var(--muted); user-select: none; }
+        .drag-handle:active { cursor: grabbing; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Brakelight</h1>
+
+        <div class="section">
+            <h2>Encoding progress</h2>
+            <div id="encode-progress" hx-sse="connect:/events swap:progress">
+                <div class="empty">Idle</div>
+            </div>
+        </div>
+
+        <div id="queue" hx-get="/queue" hx-trigger="load, every 5s" hx-swap="innerHTML">
+            {{ template "queue.html" . }}
+        </div>
+    </div>
+</body>
+</html>

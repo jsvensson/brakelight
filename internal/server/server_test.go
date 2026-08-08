@@ -1,0 +1,133 @@
+package server
+
+import (
+	"crypto/sha256"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/jsvensson/brakelight/internal/config"
+	"github.com/jsvensson/brakelight/internal/db"
+	"github.com/jsvensson/brakelight/internal/worker"
+)
+
+// The vendored htmx 1.9.12 minified file must be byte-exact. A corrupted
+// vendored asset silently breaks all htmx interactions in the UI.
+func TestEmbeddedHtmxIntegrity(t *testing.T) {
+	const wantSHA256 = "449317ade7881e949510db614991e195c3a099c4c791c24dacec55f9f4a2a452"
+
+	f, err := assets.Open("templates/htmx.min.js")
+	if err != nil {
+		t.Fatalf("open embedded htmx: %v", err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatalf("read embedded htmx: %v", err)
+	}
+
+	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != wantSHA256 {
+		t.Errorf("htmx.min.js sha256 mismatch:\ngot:  %s\nwant: %s", got, wantSHA256)
+	}
+}
+
+// The progress fragment carries a data-title attribute used to update the
+// browser tab title with live encoding progress and queue size.
+func TestProgressFragmentTitle(t *testing.T) {
+	render := func(view progressView) string {
+		t.Helper()
+		var buf strings.Builder
+		if err := renderProgressFragment(&buf, view); err != nil {
+			t.Fatalf("render progress fragment: %v", err)
+		}
+		return buf.String()
+	}
+
+	active := render(progressView{Snapshot: worker.Snapshot{Active: true, Percent: 12.34}, Pending: 17})
+	if want := `data-title="Brakelight: 12.3% (17 pending)"`; !strings.Contains(active, want) {
+		t.Errorf("active fragment missing %q:\n%s", want, active)
+	}
+
+	idle := render(progressView{Snapshot: worker.Snapshot{Active: false}, Pending: 3})
+	if want := `data-title="Brakelight"`; !strings.Contains(idle, want) {
+		t.Errorf("idle fragment missing %q:\n%s", want, idle)
+	}
+}
+
+func TestReencodeRisk(t *testing.T) {
+	watchDir := t.TempDir()
+	outDir := t.TempDir()
+
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	cfg := &config.Service{
+		Config: &config.Config{OutputDir: outDir},
+		Watch:  []config.Watch{{Name: "test", Path: watchDir, Preset: "preset", OutputDir: outDir}},
+	}
+	s := &Server{db: d, config: cfg}
+
+	completeJob := func(t *testing.T, source, output string) {
+		t.Helper()
+		if _, err := d.CreateJob(source, "preset", "test", output, 1); err != nil {
+			t.Fatalf("create job: %v", err)
+		}
+		jobs, err := d.ListPendingJobs()
+		if err != nil {
+			t.Fatalf("list pending jobs: %v", err)
+		}
+		for _, j := range jobs {
+			if j.Filepath == source {
+				if err := d.SetJobCompleted(j.ID); err != nil {
+					t.Fatalf("complete job: %v", err)
+				}
+				return
+			}
+		}
+		t.Fatalf("job for %s not found", source)
+	}
+
+	writeFile := func(t *testing.T, path string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+	}
+
+	// Completed job, source in a watch dir, output gone: at risk.
+	source := filepath.Join(watchDir, "movie.mkv")
+	output := filepath.Join(outDir, "movie.mkv")
+	writeFile(t, source)
+	completeJob(t, source, output)
+	if got := s.reencodeRisk(); got != 1 {
+		t.Errorf("expected risk 1 with source present and output gone, got %d", got)
+	}
+
+	// Output exists: scanner would skip the file anyway.
+	writeFile(t, output)
+	if got := s.reencodeRisk(); got != 0 {
+		t.Errorf("expected risk 0 with output present, got %d", got)
+	}
+
+	// Source gone: nothing to re-encode.
+	os.Remove(output)
+	os.Remove(source)
+	if got := s.reencodeRisk(); got != 0 {
+		t.Errorf("expected risk 0 with source gone, got %d", got)
+	}
+
+	// Source outside any watch dir: not picked up by the scanner.
+	outside := filepath.Join(t.TempDir(), "other.mkv")
+	writeFile(t, outside)
+	completeJob(t, outside, filepath.Join(outDir, "other.mkv"))
+	if got := s.reencodeRisk(); got != 0 {
+		t.Errorf("expected risk 0 for source outside watch dirs, got %d", got)
+	}
+}

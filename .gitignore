@@ -1,0 +1,4 @@
+*.db
+*.partial
+/tmp/
+config.hcl

@@ -1,0 +1,23 @@
+config {
+  output_dir        = "/media/encoded"
+  user_presets      = "/Users/bob/Library/Containers/fr.handbrake.HandBrake/Data/Library/Application Support/HandBrake/UserPresets.json"
+  handbrake_cli     = "/opt/homebrew/bin/HandBrakeCLI"
+  log_file          = "/Users/bob/Library/Logs/brakelight.log"
+  scan_interval     = "30s"
+  partial_extension = ".partial"
+  max_attempts      = 3
+  listen_addr       = ":8080"
+}
+
+watch "General" {
+  path   = "/media/general"
+  preset = "Standard"
+}
+
+watch "Animated" {
+  path   = "/media/animated"
+  preset = "Animated"
+
+  # Optional: overrides config.output_dir
+  output_dir = "/media/encoded/animated"
+}
