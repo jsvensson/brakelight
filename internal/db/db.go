@@ -355,21 +355,23 @@ func (db *DB) CancelJob(id int64) error {
 	return err
 }
 
-// GetJobLog returns the stored CLI log output for a completed or failed job.
-// The second return value reports whether the job exists in history.
-func (db *DB) GetJobLog(id int64) (string, bool, error) {
+// GetJobLog returns the source filepath and stored CLI log output for a
+// completed or failed job. The third return value reports whether the job
+// exists in history.
+func (db *DB) GetJobLog(id int64) (string, string, bool, error) {
+	var filepath string
 	var logOut sql.NullString
 	err := db.conn.QueryRow(
-		`SELECT log_output FROM jobs WHERE id = ? AND status IN ('completed', 'failed')`,
+		`SELECT filepath, log_output FROM jobs WHERE id = ? AND status IN ('completed', 'failed')`,
 		id,
-	).Scan(&logOut)
+	).Scan(&filepath, &logOut)
 	if err == sql.ErrNoRows {
-		return "", false, nil
+		return "", "", false, nil
 	}
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
-	return logOut.String, true, nil
+	return filepath, logOut.String, true, nil
 }
 
 // ClearHistory deletes all completed and failed jobs.

@@ -96,6 +96,9 @@ func TestHistoryLogEndpoint(t *testing.T) {
 	if !strings.Contains(body, `class="log-output"`) {
 		t.Errorf("expected log-output div in response:\n%s", body)
 	}
+	if !strings.Contains(body, `id="log-modal-title" hx-swap-oob="true">movie.mkv`) {
+		t.Errorf("expected OOB modal title with filename in response:\n%s", body)
+	}
 
 	req = httptest.NewRequest("GET", "/history/9999/log", nil)
 	rec = httptest.NewRecorder()

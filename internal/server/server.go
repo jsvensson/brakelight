@@ -248,7 +248,7 @@ func (s *Server) handleHistoryLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logOutput, found, err := s.db.GetJobLog(id)
+	filepath, logOutput, found, err := s.db.GetJobLog(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -258,7 +258,13 @@ func (s *Server) handleHistoryLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderTemplate(w, "templates/log.html", logOutput)
+	renderTemplate(w, "templates/log.html", logView{Filename: filepath, Log: logOutput})
+}
+
+// logView is the data passed to the log fragment template.
+type logView struct {
+	Filename string
+	Log      string
 }
 
 func (s *Server) handleHistoryAction(w http.ResponseWriter, r *http.Request) {

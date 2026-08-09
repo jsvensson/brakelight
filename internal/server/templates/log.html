@@ -1,6 +1,7 @@
 {{ define "log.html" }}
-{{ if . }}
-<div class="log-output">{{ . }}</div>
+<span id="log-modal-title" hx-swap-oob="true">{{ base .Filename }}</span>
+{{ if .Log }}
+<div class="log-output">{{ .Log }}</div>
 {{ else }}
 <div class="empty">No output recorded for this job.</div>
 {{ end }}

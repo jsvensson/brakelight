@@ -142,7 +142,7 @@
             <col>
             <col style="width: 6rem;">
             <col style="width: 10rem;">
-            <col style="width: 6rem;">
+            <col style="width: 10rem;">
         </colgroup>
         <thead>
             <tr><th>File</th><th>Status</th><th>Completed</th><th>Actions</th></tr>
@@ -160,7 +160,8 @@
                     {{ if .LogOutput }}
                     <button class="secondary"
                         hx-get="/history/{{ .ID }}/log"
-                        hx-target="#log-{{ .ID }}">Output</button>
+                        hx-target="#log-modal-content"
+                        hx-on::after-request="document.getElementById('log-modal').hidden = false">Output</button>
                     {{ end }}
                     <button class="secondary"
                         hx-post="/history/{{ .ID }}/forget"
@@ -173,9 +174,6 @@
                 <td colspan="4" class="error-message">{{ .ErrorMessage }}</td>
             </tr>
             {{ end }}
-            <tr>
-                <td colspan="4" id="log-{{ .ID }}"></td>
-            </tr>
             {{ end }}
         </tbody>
     </table>

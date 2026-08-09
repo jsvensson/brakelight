@@ -21,7 +21,7 @@ func TestJobLogOutputRoundTrip(t *testing.T) {
 	}
 
 	// Pending jobs are not history yet.
-	if _, found, err := d.GetJobLog(job.ID); err != nil || found {
+	if _, _, found, err := d.GetJobLog(job.ID); err != nil || found {
 		t.Errorf("expected pending job to have no history log, found=%v err=%v", found, err)
 	}
 
@@ -30,7 +30,7 @@ func TestJobLogOutputRoundTrip(t *testing.T) {
 		t.Fatalf("set job completed: %v", err)
 	}
 
-	got, found, err := d.GetJobLog(job.ID)
+	source, got, found, err := d.GetJobLog(job.ID)
 	if err != nil {
 		t.Fatalf("get job log: %v", err)
 	}
@@ -40,8 +40,11 @@ func TestJobLogOutputRoundTrip(t *testing.T) {
 	if got != want {
 		t.Errorf("expected log %q, got %q", want, got)
 	}
+	if source != "/media/movie.mkv" {
+		t.Errorf("expected filepath /media/movie.mkv, got %q", source)
+	}
 
-	if _, found, err := d.GetJobLog(9999); err != nil || found {
+	if _, _, found, err := d.GetJobLog(9999); err != nil || found {
 		t.Errorf("expected unknown id to be not found, found=%v err=%v", found, err)
 	}
 }
