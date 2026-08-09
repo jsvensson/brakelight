@@ -98,7 +98,7 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 	// Ensure stability before encoding.
 	if err := waitStable(job.Filepath, 5*time.Second); err != nil {
 		log.Printf("Job %d source not stable, will retry: %v", job.ID, err)
-		return w.retryOrFail(job, "source file not stable")
+		return w.retryOrFail(job, "source file not stable", "")
 	}
 
 	if err := w.db.SetJobProcessing(job.ID); err != nil {
@@ -116,15 +116,15 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 	if err != nil {
 		// Clean up partial file on failure.
 		_ = os.Remove(partialPath)
-		return w.retryOrFail(job, fmt.Sprintf("%v\n%s", err, output))
+		return w.retryOrFail(job, fmt.Sprintf("%v", err), output)
 	}
 
 	if err := os.Rename(partialPath, job.OutputPath); err != nil {
 		_ = os.Remove(partialPath)
-		return w.retryOrFail(job, fmt.Sprintf("rename output: %v\n%s", err, output))
+		return w.retryOrFail(job, fmt.Sprintf("rename output: %v", err), output)
 	}
 
-	if err := w.db.SetJobCompleted(job.ID); err != nil {
+	if err := w.db.SetJobCompleted(job.ID, output); err != nil {
 		return fmt.Errorf("mark completed: %w", err)
 	}
 
@@ -209,7 +209,7 @@ func (b *logBuffer) String() string {
 	return b.buf.String()
 }
 
-func (w *Worker) retryOrFail(job *db.Job, message string) error {
+func (w *Worker) retryOrFail(job *db.Job, message, logOutput string) error {
 	if err := w.db.IncrementAttempts(job.ID); err != nil {
 		log.Printf("Failed to increment attempts for job %d: %v", job.ID, err)
 	}
@@ -218,12 +218,12 @@ func (w *Worker) retryOrFail(job *db.Job, message string) error {
 		log.Printf("Retrying job %d (attempt %d/%d)", job.ID, job.Attempts+1, w.config.Config.MaxAttempts)
 		pos, err := w.db.NextPosition()
 		if err != nil {
-			return w.db.SetJobFailed(job.ID, message, "")
+			return w.db.SetJobFailed(job.ID, message, logOutput)
 		}
 		return w.db.ResetJobToPending(job.ID, pos)
 	}
 
-	return w.db.SetJobFailed(job.ID, message, "")
+	return w.db.SetJobFailed(job.ID, message, logOutput)
 }
 
 func waitStable(path string, duration time.Duration) error {

@@ -1,0 +1,7 @@
+{{ define "log.html" }}
+{{ if . }}
+<div class="log-output">{{ . }}</div>
+{{ else }}
+<div class="empty">No output recorded for this job.</div>
+{{ end }}
+{{ end }}

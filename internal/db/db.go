@@ -189,11 +189,11 @@ func (db *DB) SetJobProcessing(id int64) error {
 	return err
 }
 
-// SetJobCompleted marks a job as completed.
-func (db *DB) SetJobCompleted(id int64) error {
+// SetJobCompleted marks a job as completed and stores the CLI log output.
+func (db *DB) SetJobCompleted(id int64, logOutput string) error {
 	_, err := db.conn.Exec(
-		`UPDATE jobs SET status = 'completed', position = NULL, completed_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		id,
+		`UPDATE jobs SET status = 'completed', position = NULL, completed_at = CURRENT_TIMESTAMP, log_output = ? WHERE id = ?`,
+		logOutput, id,
 	)
 	return err
 }
@@ -353,6 +353,23 @@ func (db *DB) MoveJobToPosition(id int64, newIndex int64) error {
 func (db *DB) CancelJob(id int64) error {
 	_, err := db.conn.Exec(`DELETE FROM jobs WHERE id = ? AND status = 'pending'`, id)
 	return err
+}
+
+// GetJobLog returns the stored CLI log output for a completed or failed job.
+// The second return value reports whether the job exists in history.
+func (db *DB) GetJobLog(id int64) (string, bool, error) {
+	var logOut sql.NullString
+	err := db.conn.QueryRow(
+		`SELECT log_output FROM jobs WHERE id = ? AND status IN ('completed', 'failed')`,
+		id,
+	).Scan(&logOut)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return logOut.String, true, nil
 }
 
 // ClearHistory deletes all completed and failed jobs.

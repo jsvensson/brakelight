@@ -157,6 +157,11 @@
                     {{ if eq .Status "failed" }}
                     <button hx-post="/queue/{{ .ID }}/retry" hx-target="#queue">Retry</button>
                     {{ end }}
+                    {{ if .LogOutput }}
+                    <button class="secondary"
+                        hx-get="/history/{{ .ID }}/log"
+                        hx-target="#log-{{ .ID }}">Output</button>
+                    {{ end }}
                     <button class="secondary"
                         hx-post="/history/{{ .ID }}/forget"
                         hx-confirm="Remove from history? The source file will be re-encoded if it is still in a watch directory."
@@ -168,16 +173,9 @@
                 <td colspan="4" class="error-message">{{ .ErrorMessage }}</td>
             </tr>
             {{ end }}
-            {{ if .LogOutput }}
             <tr>
-                <td colspan="4">
-                    <details>
-                        <summary>HandBrake output</summary>
-                        <div class="log-output">{{ .LogOutput }}</div>
-                    </details>
-                </td>
+                <td colspan="4" id="log-{{ .ID }}"></td>
             </tr>
-            {{ end }}
             {{ end }}
         </tbody>
     </table>

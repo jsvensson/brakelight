@@ -44,6 +44,7 @@ func New(database *db.DB, cfg *config.Service, progress *worker.Progress) *Serve
 	mux.HandleFunc("GET /events", s.handleEvents)
 	mux.HandleFunc("POST /queue/", s.handleQueueAction)
 	mux.HandleFunc("POST /history/", s.handleHistoryAction)
+	mux.HandleFunc("GET /history/", s.handleHistoryLog)
 	mux.HandleFunc("POST /service/encoding/toggle", s.handleToggleEncoding)
 	mux.HandleFunc("POST /service/scanning/toggle", s.handleToggleScanning)
 	mux.HandleFunc("POST /history/clear", s.handleClearHistory)
@@ -232,6 +233,34 @@ func (s *Server) handleClearHistory(w http.ResponseWriter, r *http.Request) {
 	s.handleQueueFragment(w, r)
 }
 
+// handleHistoryLog serves the stored HandBrake CLI output for a history job.
+func (s *Server) handleHistoryLog(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/history/"), "/log")
+	parts := strings.Split(path, "/")
+	if len(parts) != 1 || !strings.HasSuffix(r.URL.Path, "/log") {
+		http.NotFound(w, r)
+		return
+	}
+
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	logOutput, found, err := s.db.GetJobLog(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+
+	renderTemplate(w, "templates/log.html", logOutput)
+}
+
 func (s *Server) handleHistoryAction(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/history/")
 	parts := strings.SplitN(path, "/", 2)
@@ -353,7 +382,7 @@ func parseTemplates() (*template.Template, error) {
 		"add":        func(a, b int) int { return a + b },
 		"sub":        func(a, b int) int { return a - b },
 	}
-	return template.New("index.html").Funcs(funcMap).ParseFS(assets, "templates/index.html", "templates/queue.html", "templates/progress.html")
+	return template.New("index.html").Funcs(funcMap).ParseFS(assets, "templates/index.html", "templates/queue.html", "templates/progress.html", "templates/log.html")
 }
 
 func formatTime(t *time.Time) string {

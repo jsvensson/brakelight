@@ -144,7 +144,7 @@ func TestScanDoesNotRequeueCompletedJobWithMissingOutput(t *testing.T) {
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(jobs))
 	}
-	if err := d.SetJobCompleted(jobs[0].ID); err != nil {
+	if err := d.SetJobCompleted(jobs[0].ID, ""); err != nil {
 		t.Fatalf("complete job: %v", err)
 	}
 
