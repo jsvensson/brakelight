@@ -5,6 +5,50 @@ import (
 	"testing"
 )
 
+func TestJobLogOutputRoundTrip(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	if _, err := d.CreateJob("/media/movie.mkv", "preset", "general", "/media/out/movie.mkv", 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	job, err := d.NextPendingJob()
+	if err != nil {
+		t.Fatalf("next pending job: %v", err)
+	}
+
+	// Pending jobs are not history yet.
+	if _, _, found, err := d.GetJobLog(job.ID); err != nil || found {
+		t.Errorf("expected pending job to have no history log, found=%v err=%v", found, err)
+	}
+
+	const want = "Encoding: done\nmuxing: done\n"
+	if err := d.SetJobCompleted(job.ID, want); err != nil {
+		t.Fatalf("set job completed: %v", err)
+	}
+
+	source, got, found, err := d.GetJobLog(job.ID)
+	if err != nil {
+		t.Fatalf("get job log: %v", err)
+	}
+	if !found {
+		t.Fatal("expected completed job to be found")
+	}
+	if got != want {
+		t.Errorf("expected log %q, got %q", want, got)
+	}
+	if source != "/media/movie.mkv" {
+		t.Errorf("expected filepath /media/movie.mkv, got %q", source)
+	}
+
+	if _, _, found, err := d.GetJobLog(9999); err != nil || found {
+		t.Errorf("expected unknown id to be not found, found=%v err=%v", found, err)
+	}
+}
+
 func TestServiceStateDefaultsToActive(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -279,7 +323,7 @@ func TestDeleteJobOnlyRemovesHistoryRows(t *testing.T) {
 	if err := d.SetJobProcessing(pending.ID); err != nil {
 		t.Fatalf("mark processing: %v", err)
 	}
-	if err := d.SetJobCompleted(pending.ID); err != nil {
+	if err := d.SetJobCompleted(pending.ID, ""); err != nil {
 		t.Fatalf("mark completed: %v", err)
 	}
 
@@ -360,7 +404,7 @@ func TestListCompletedJobs(t *testing.T) {
 	for _, j := range jobs {
 		switch j.Filepath {
 		case "/tmp/done.mkv":
-			if err := d.SetJobCompleted(j.ID); err != nil {
+			if err := d.SetJobCompleted(j.ID, ""); err != nil {
 				t.Fatalf("complete job: %v", err)
 			}
 		case "/tmp/failed.mkv":

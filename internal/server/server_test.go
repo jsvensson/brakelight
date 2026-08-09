@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +60,54 @@ func TestProgressFragmentTitle(t *testing.T) {
 	}
 }
 
+// The history log endpoint serves a job's stored CLI output as an HTML fragment.
+func TestHistoryLogEndpoint(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	s := New(d, &config.Service{Config: &config.Config{}}, &worker.Progress{})
+
+	if _, err := d.CreateJob("/media/movie.mkv", "preset", "general", "/media/out/movie.mkv", 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	job, err := d.NextPendingJob()
+	if err != nil {
+		t.Fatalf("next pending job: %v", err)
+	}
+	const logText = "muxing: done"
+	if err := d.SetJobCompleted(job.ID, logText); err != nil {
+		t.Fatalf("set job completed: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/history/%d/log", job.ID), nil)
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, logText) {
+		t.Errorf("expected log text in response:\n%s", body)
+	}
+	if !strings.Contains(body, `class="log-output"`) {
+		t.Errorf("expected log-output div in response:\n%s", body)
+	}
+	if !strings.Contains(body, `id="log-modal-title" hx-swap-oob="true">movie.mkv`) {
+		t.Errorf("expected OOB modal title with filename in response:\n%s", body)
+	}
+
+	req = httptest.NewRequest("GET", "/history/9999/log", nil)
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown job, got %d", rec.Code)
+	}
+}
+
 func TestReencodeRisk(t *testing.T) {
 	watchDir := t.TempDir()
 	outDir := t.TempDir()
@@ -85,7 +135,7 @@ func TestReencodeRisk(t *testing.T) {
 		}
 		for _, j := range jobs {
 			if j.Filepath == source {
-				if err := d.SetJobCompleted(j.ID); err != nil {
+				if err := d.SetJobCompleted(j.ID, ""); err != nil {
 					t.Fatalf("complete job: %v", err)
 				}
 				return

@@ -10,6 +10,18 @@
             var el = document.querySelector('#encode-progress [data-title]');
             document.title = el ? el.getAttribute('data-title') : 'Brakelight';
         });
+        function closeLogModal() {
+            document.getElementById('log-modal').hidden = true;
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+            document.getElementById('log-modal-close').addEventListener('click', closeLogModal);
+            document.getElementById('log-modal').addEventListener('click', function (e) {
+                if (e.target === this) closeLogModal();
+            });
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeLogModal();
+        });
     </script>
     <style>
         :root {
@@ -97,7 +109,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .actions { display: flex; gap: 0.4rem; align-items: center; }
+        .actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
         button {
             background: var(--accent);
             color: var(--button-text);
@@ -177,6 +189,38 @@
         .reencode-warning { color: var(--warn); font-size: 0.85rem; }
         .drag-handle { cursor: grab; color: var(--muted); user-select: none; }
         .drag-handle:active { cursor: grabbing; }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .modal-overlay[hidden] { display: none; }
+        .modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            width: min(900px, 90vw);
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            padding: 1rem 1.25rem;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        #log-modal-title {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+        .modal .log-output { max-height: 60vh; }
     </style>
 </head>
 <body>
@@ -192,6 +236,16 @@
 
         <div id="queue" hx-get="/queue" hx-trigger="load, every 5s" hx-swap="innerHTML">
             {{ template "queue.html" . }}
+        </div>
+    </div>
+
+    <div id="log-modal" class="modal-overlay" hidden>
+        <div class="modal">
+            <div class="modal-header">
+                <span id="log-modal-title">Output</span>
+                <button id="log-modal-close" class="secondary">✕</button>
+            </div>
+            <div id="log-modal-content"></div>
         </div>
     </div>
 </body>
