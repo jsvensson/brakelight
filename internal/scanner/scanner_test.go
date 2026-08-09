@@ -52,22 +52,22 @@ func TestScanQueuesAllStableFilesOnSecondPass(t *testing.T) {
 	watchDir := t.TempDir()
 	s, d := newTestScanner(t, watchDir)
 
-	for _, name := range []string{"a.mkv", "b.mp4", "c.avi"} {
+	for _, name := range []string{"a.mkv", "b.mp4", "c.avi", "d.m4v"} {
 		writeFile(t, filepath.Join(watchDir, name), 1024)
 	}
 
 	start := time.Now()
 	s.scan()
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("scan blocked for %v with 3 new files", elapsed)
+		t.Fatalf("scan blocked for %v with 4 new files", elapsed)
 	}
 	if got := pendingCount(t, d); got != 0 {
 		t.Errorf("expected 0 jobs after first scan, got %d", got)
 	}
 
 	s.scan()
-	if got := pendingCount(t, d); got != 3 {
-		t.Errorf("expected 3 jobs after second scan, got %d", got)
+	if got := pendingCount(t, d); got != 4 {
+		t.Errorf("expected 4 jobs after second scan, got %d", got)
 	}
 }
 
