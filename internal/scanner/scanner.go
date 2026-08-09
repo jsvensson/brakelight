@@ -14,7 +14,7 @@ import (
 )
 
 var mediaExtensions = map[string]bool{
-	".mkv": true, ".mp4": true, ".avi": true, ".mov": true,
+	".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".mov": true,
 	".ts": true, ".m2ts": true, ".mts": true,
 }
 
