@@ -141,17 +141,21 @@
         <colgroup>
             <col>
             <col style="width: 6rem;">
+            <col style="width: 6rem;">
+            <col style="width: 5rem;">
             <col style="width: 10rem;">
             <col style="width: 10rem;">
         </colgroup>
         <thead>
-            <tr><th>File</th><th>Status</th><th>Completed</th><th>Actions</th></tr>
+            <tr><th>File</th><th>Status</th><th>Duration</th><th>Size</th><th>Completed</th><th>Actions</th></tr>
         </thead>
         <tbody>
             {{ range .History }}
             <tr>
                 <td class="filename" title="{{ base .Filepath }}">{{ base .Filepath }}</td>
                 <td><span class="status {{ .Status }}">{{ .Status }}</span></td>
+                <td>{{ formatDuration .StartedAt .CompletedAt }}</td>
+                <td><span class="{{ sizeChangeClass . }}">{{ sizeChange . }}</span></td>
                 <td>{{ formatTime .CompletedAt }}</td>
                 <td class="actions">
                     {{ if eq .Status "failed" }}
@@ -171,7 +175,7 @@
             </tr>
             {{ if .ErrorMessage }}
             <tr>
-                <td colspan="4" class="error-message">{{ .ErrorMessage }}</td>
+                <td colspan="6" class="error-message">{{ .ErrorMessage }}</td>
             </tr>
             {{ end }}
             {{ end }}
