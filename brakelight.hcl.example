@@ -20,4 +20,12 @@ watch "Animated" {
 
   # Optional: overrides config.output_dir
   output_dir = "/media/encoded/animated"
+
+  # Optional: shell commands run after each encode completes.
+  # {output_path} is the full output path, {output_file} is its basename.
+  # Commands run with /bin/sh -c; failures are logged but do not
+  # affect the job status.
+  post_commands = [
+    "logger 'Encoded: {output_file}'",
+  ]
 }
