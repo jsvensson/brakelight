@@ -27,7 +27,7 @@ watch "general" {
   preset = "Standard"
   post_commands = [
     "logger 'Encoded: {output_file}'",
-    "cp {output_path} /archive/{output_file}",
+    "cp {output} /archive/{output_file}",
   ]
 }
 
@@ -43,7 +43,7 @@ watch "plain" {
 	}
 
 	got := svc.Watch[0].PostCommands
-	want := []string{"logger 'Encoded: {output_file}'", "cp {output_path} /archive/{output_file}"}
+	want := []string{"logger 'Encoded: {output_file}'", "cp {output} /archive/{output_file}"}
 	if len(got) != len(want) {
 		t.Fatalf("expected %d post commands, got %d", len(want), len(got))
 	}

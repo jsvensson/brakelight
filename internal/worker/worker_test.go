@@ -11,8 +11,8 @@ import (
 func TestSubstituteOutput(t *testing.T) {
 	const outputPath = "/media/encoded/My Movie.mkv"
 
-	got := substituteOutput("cp {output_path} /archive/{output_file}", outputPath)
-	want := "cp /media/encoded/My Movie.mkv /archive/My Movie.mkv"
+	got := substituteOutput("cp {output} /archive/{output_file}; cd {output_path}", outputPath)
+	want := "cp /media/encoded/My Movie.mkv /archive/My Movie.mkv; cd /media/encoded"
 	if got != want {
 		t.Errorf("expected %q, got %q", want, got)
 	}

@@ -47,7 +47,7 @@ watch "Animated" {
   output_dir = "/media/encoded/animated"
 
   # Optional: shell commands run after each encode completes.
-  # {output_path} = full output path, {output_file} = its basename.
+  # {output} = full path, {output_path} = directory, {output_file} = basename.
   # Run with /bin/sh -c; failures are logged but do not fail the job.
   post_commands = [
     "logger 'Encoded: {output_file}'",

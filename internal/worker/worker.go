@@ -162,11 +162,13 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 const postCommandTimeout = 10 * time.Minute
 
 // substituteOutput replaces the output placeholders in a post-encoding
-// command: {output_path} is the full path, {output_file} is the basename.
+// command: {output} is the full path, {output_path} is its directory,
+// {output_file} is the basename.
 func substituteOutput(cmd, outputPath string) string {
 	r := strings.NewReplacer(
-		"{output_path}", outputPath,
+		"{output_path}", filepath.Dir(outputPath),
 		"{output_file}", filepath.Base(outputPath),
+		"{output}", outputPath,
 	)
 	return r.Replace(cmd)
 }
