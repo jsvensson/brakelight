@@ -41,7 +41,12 @@ func main() {
 		}
 	}
 
-	database, err := db.Open(cfg.Config.DBPath())
+	dbPath, err := cfg.Config.DBPath()
+	if err != nil {
+		log.Fatalf("Failed to resolve database path: %v", err)
+	}
+
+	database, err := db.Open(dbPath)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
