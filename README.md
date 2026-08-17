@@ -46,6 +46,13 @@ watch "Animated" {
   # Optional: override the default output_dir for this watch directory.
   output_dir = "/media/encoded/animated"
 
+  # Optional: shell commands run before each encode starts.
+  # Same placeholders and behavior as post_commands; the output file
+  # does not exist yet at this point.
+  pre_commands = [
+    "logger 'Starting: {output_file}'",
+  ]
+
   # Optional: shell commands run after each encode completes.
   # {output} = full path, {output_path} = directory, {output_file} = basename.
   # Run with /bin/sh -c; failures are logged but do not fail the job.

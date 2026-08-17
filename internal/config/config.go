@@ -14,6 +14,7 @@ type Watch struct {
 	Path         string   `hcl:"path"`
 	Preset       string   `hcl:"preset"`
 	OutputDir    string   `hcl:"output_dir,optional"`
+	PreCommands  []string `hcl:"pre_commands,optional"`
 	PostCommands []string `hcl:"post_commands,optional"`
 }
 

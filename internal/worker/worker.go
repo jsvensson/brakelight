@@ -114,12 +114,19 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 
 	partialPath := job.OutputPath + w.config.Config.PartialExtension
 
+	var preBuf logBuffer
+	if watch := w.config.WatchByName(job.WatchName); watch != nil && len(watch.PreCommands) > 0 {
+		w.runPreCommands(ctx, watch.PreCommands, job.OutputPath, &preBuf)
+	}
+	preLog := preBuf.String()
+
 	log.Printf("Starting job %d: %s -> %s", job.ID, job.Filepath, partialPath)
 
 	w.progress.Start(job.ID)
 	defer w.progress.Stop()
 
 	output, err := w.runHandBrake(ctx, job.Filepath, partialPath, job.Preset)
+	output = preLog + output
 	if err != nil {
 		// Clean up partial file on failure.
 		_ = os.Remove(partialPath)
@@ -158,10 +165,10 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 	return nil
 }
 
-// postCommandTimeout caps the runtime of a single post-encoding command.
-const postCommandTimeout = 10 * time.Minute
+// commandTimeout caps the runtime of a single pre/post-encoding command.
+const commandTimeout = 10 * time.Minute
 
-// substituteOutput replaces the output placeholders in a post-encoding
+// substituteOutput replaces the output placeholders in a pre/post-encoding
 // command: {output} is the full path, {output_path} is its directory,
 // {output_file} is the basename.
 func substituteOutput(cmd, outputPath string) string {
@@ -173,16 +180,30 @@ func substituteOutput(cmd, outputPath string) string {
 	return r.Replace(cmd)
 }
 
+// runPreCommands runs the pre-encoding commands of a watch block in order.
+// All output is appended to logBuf. Command failures are recorded in the log
+// and do not affect the job status.
+func (w *Worker) runPreCommands(ctx context.Context, cmds []string, outputPath string, logBuf *logBuffer) {
+	w.runCommands(ctx, cmds, outputPath, "pre-command", logBuf)
+}
+
 // runPostCommands runs the post-encoding commands of a watch block in order.
 // All output is appended to logBuf. Command failures are recorded in the log
 // and do not affect the job status.
 func (w *Worker) runPostCommands(ctx context.Context, cmds []string, outputPath string, logBuf *logBuffer) {
+	w.runCommands(ctx, cmds, outputPath, "post-command", logBuf)
+}
+
+// runCommands runs the given commands in order with output placeholder
+// substitution. All output is appended to logBuf. Command failures are
+// recorded in the log and do not affect the job status.
+func (w *Worker) runCommands(ctx context.Context, cmds []string, outputPath, label string, logBuf *logBuffer) {
 	for _, cmd := range cmds {
 		cmd = substituteOutput(cmd, outputPath)
-		log.Printf("Running post-command: %s", cmd)
+		log.Printf("Running %s: %s", label, cmd)
 		logBuf.WriteString("$ " + cmd + "\n")
 
-		cctx, cancel := context.WithTimeout(ctx, postCommandTimeout)
+		cctx, cancel := context.WithTimeout(ctx, commandTimeout)
 		out, err := exec.CommandContext(cctx, "/bin/sh", "-c", cmd).CombinedOutput()
 		cancel()
 
@@ -193,8 +214,8 @@ func (w *Worker) runPostCommands(ctx context.Context, cmds []string, outputPath 
 			}
 		}
 		if err != nil {
-			log.Printf("Post-command failed: %s: %v", cmd, err)
-			logBuf.WriteString(fmt.Sprintf("post-command failed: %v\n", err))
+			log.Printf("%s failed: %s: %v", label, cmd, err)
+			logBuf.WriteString(fmt.Sprintf("%s failed: %v\n", label, err))
 		}
 	}
 }
