@@ -101,6 +101,70 @@ watch "plain" {
 	}
 }
 
+func TestWatchPresetDefaultsToConfigDefaultPreset(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir     = "/media/encoded"
+  user_presets   = "/presets.json"
+  default_preset = "Standard"
+}
+
+watch "general" {
+  path = "/media/watch"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if got := svc.Watch[0].Preset; got != "Standard" {
+		t.Errorf("expected watch preset to default to Standard, got %q", got)
+	}
+}
+
+func TestWatchPresetOverridesConfigDefaultPreset(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir     = "/media/encoded"
+  user_presets   = "/presets.json"
+  default_preset = "Standard"
+}
+
+watch "animated" {
+  path   = "/media/watch"
+  preset = "Animated"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if got := svc.Watch[0].Preset; got != "Animated" {
+		t.Errorf("expected watch preset override Animated, got %q", got)
+	}
+}
+
+func TestWatchPresetRequiredWithoutDefaultPreset(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+}
+
+watch "general" {
+  path = "/media/watch"
+}
+`)
+
+	if _, err := Load(path); err == nil {
+		t.Error("expected error when watch has no preset and config.default_preset is not set")
+	}
+}
+
 func TestWatchByName(t *testing.T) {
 	svc := &Service{Watch: []Watch{{Name: "general"}, {Name: "animated"}}}
 

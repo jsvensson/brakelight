@@ -12,7 +12,7 @@ import (
 type Watch struct {
 	Name         string   `hcl:",label"`
 	Path         string   `hcl:"path"`
-	Preset       string   `hcl:"preset"`
+	Preset       string   `hcl:"preset,optional"`
 	OutputDir    string   `hcl:"output_dir,optional"`
 	PreCommands  []string `hcl:"pre_commands,optional"`
 	PostCommands []string `hcl:"post_commands,optional"`
@@ -22,6 +22,7 @@ type Watch struct {
 type Config struct {
 	OutputDir        string `hcl:"output_dir"`
 	UserPresets      string `hcl:"user_presets"`
+	DefaultPreset    string `hcl:"default_preset,optional"`
 	HandBrakeCLI     string `hcl:"handbrake_cli,optional"`
 	LogFile          string `hcl:"log_file,optional"`
 	ScanInterval     string `hcl:"scan_interval,optional"`
@@ -102,6 +103,12 @@ func Load(path string) (*Service, error) {
 
 	for i, w := range root.Watch {
 		root.Watch[i].Path = expandPath(w.Path)
+		if w.Preset == "" {
+			if root.Config.DefaultPreset == "" {
+				return nil, fmt.Errorf("watch %q: preset is required and config.default_preset is not set", w.Name)
+			}
+			root.Watch[i].Preset = root.Config.DefaultPreset
+		}
 		if w.OutputDir == "" {
 			root.Watch[i].OutputDir = root.Config.OutputDir
 		} else {
