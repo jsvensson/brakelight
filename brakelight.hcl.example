@@ -10,6 +10,9 @@ config {
 
   # Optional: default preset for watch blocks without an explicit preset.
   default_preset    = "Standard"
+
+  # Optional: custom location for the queue database.
+  db_file           = "/data/brakelight/myqueue.db"
 }
 
 watch "General" {
