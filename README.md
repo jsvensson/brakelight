@@ -20,7 +20,7 @@ go build -o brakelight ./cmd/brakelight
 
 ## Configuration
 
-Create an HCL config file, e.g. `brakelight.hcl`:
+Create an HCL config file, e.g. `brakelight.hcl`. See [HCL syntax](https://developer.hashicorp.com/packer/docs/templates/hcl_templates/syntax) for reference.
 
 ```hcl
 config {
@@ -34,6 +34,7 @@ config {
   listen_addr       = ":8080"
 }
 
+# A minimal setup for watching a directory.
 watch "General" {
   path   = "/media/queue/general"
   preset = Default"
@@ -47,15 +48,15 @@ watch "Animated" {
   output_dir = "/media/encoded/animated"
 
   # Optional: shell commands run before each encode starts.
-  # Same placeholders and behavior as post_commands; the output file
-  # does not exist yet at this point.
+  # {output} = full path, {output_path} = directory, {output_file} = basename.
+  # NOTE: the output file does not exist yet at this point.
   pre_commands = [
     "logger 'Starting: {output_file}'",
   ]
 
   # Optional: shell commands run after each encode completes.
-  # {output} = full path, {output_path} = directory, {output_file} = basename.
   # Run with /bin/sh -c; failures are logged but do not fail the job.
+  # Same placeholders and behavior as pre_commands.
   post_commands = [
     "logger 'Encoded: {output_file}'",
   ]
