@@ -32,6 +32,9 @@ config {
   partial_extension = ".partial"
   max_attempts      = 3
   listen_addr       = ":8080"
+
+  # Optional: default preset for watch blocks without an explicit preset.
+  default_preset    = "Standard"
 }
 
 # A minimal setup for watching a directory.
