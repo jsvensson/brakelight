@@ -10,10 +10,11 @@ import (
 
 // Watch maps a directory to a HandBrake preset.
 type Watch struct {
-	Name      string `hcl:",label"`
-	Path      string `hcl:"path"`
-	Preset    string `hcl:"preset"`
-	OutputDir string `hcl:"output_dir,optional"`
+	Name         string   `hcl:",label"`
+	Path         string   `hcl:"path"`
+	Preset       string   `hcl:"preset"`
+	OutputDir    string   `hcl:"output_dir,optional"`
+	PostCommands []string `hcl:"post_commands,optional"`
 }
 
 // Config holds top-level service settings.
@@ -125,6 +126,16 @@ func (s *Service) PresetForDir(dir string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// WatchByName returns the watch block with the given name, or nil.
+func (s *Service) WatchByName(name string) *Watch {
+	for i := range s.Watch {
+		if s.Watch[i].Name == name {
+			return &s.Watch[i]
+		}
+	}
+	return nil
 }
 
 func expandPath(path string) string {

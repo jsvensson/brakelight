@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -143,7 +144,59 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 	}
 
 	log.Printf("Completed job %d: %s", job.ID, job.OutputPath)
+
+	if watch := w.config.WatchByName(job.WatchName); watch != nil && len(watch.PostCommands) > 0 {
+		var postBuf logBuffer
+		w.runPostCommands(ctx, watch.PostCommands, job.OutputPath, &postBuf)
+		if s := postBuf.String(); s != "" {
+			if err := w.db.AppendJobLog(job.ID, s); err != nil {
+				log.Printf("Job %d: could not store post-command output: %v", job.ID, err)
+			}
+		}
+	}
+
 	return nil
+}
+
+// postCommandTimeout caps the runtime of a single post-encoding command.
+const postCommandTimeout = 10 * time.Minute
+
+// substituteOutput replaces the output placeholders in a post-encoding
+// command: {output} is the full path, {output_path} is its directory,
+// {output_file} is the basename.
+func substituteOutput(cmd, outputPath string) string {
+	r := strings.NewReplacer(
+		"{output_path}", filepath.Dir(outputPath),
+		"{output_file}", filepath.Base(outputPath),
+		"{output}", outputPath,
+	)
+	return r.Replace(cmd)
+}
+
+// runPostCommands runs the post-encoding commands of a watch block in order.
+// All output is appended to logBuf. Command failures are recorded in the log
+// and do not affect the job status.
+func (w *Worker) runPostCommands(ctx context.Context, cmds []string, outputPath string, logBuf *logBuffer) {
+	for _, cmd := range cmds {
+		cmd = substituteOutput(cmd, outputPath)
+		log.Printf("Running post-command: %s", cmd)
+		logBuf.WriteString("$ " + cmd + "\n")
+
+		cctx, cancel := context.WithTimeout(ctx, postCommandTimeout)
+		out, err := exec.CommandContext(cctx, "/bin/sh", "-c", cmd).CombinedOutput()
+		cancel()
+
+		if len(out) > 0 {
+			logBuf.WriteString(string(out))
+			if !strings.HasSuffix(string(out), "\n") {
+				logBuf.WriteString("\n")
+			}
+		}
+		if err != nil {
+			log.Printf("Post-command failed: %s: %v", cmd, err)
+			logBuf.WriteString(fmt.Sprintf("post-command failed: %v\n", err))
+		}
+	}
 }
 
 func (w *Worker) runHandBrake(ctx context.Context, input, output, preset string) (string, error) {

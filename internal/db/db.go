@@ -216,6 +216,15 @@ func (db *DB) SetJobCompleted(id int64, logOutput string, outputSize *int) error
 	return err
 }
 
+// AppendJobLog appends text to a job's stored log output.
+func (db *DB) AppendJobLog(id int64, extra string) error {
+	_, err := db.conn.Exec(
+		`UPDATE jobs SET log_output = COALESCE(log_output, '') || ? WHERE id = ?`,
+		extra, id,
+	)
+	return err
+}
+
 // SetJobFailed marks a job as failed with an error message and log output.
 func (db *DB) SetJobFailed(id int64, errorMessage, logOutput string) error {
 	_, err := db.conn.Exec(
