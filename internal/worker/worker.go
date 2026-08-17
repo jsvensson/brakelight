@@ -105,6 +105,12 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 		return fmt.Errorf("mark processing: %w", err)
 	}
 
+	if size, err := fileSize(job.Filepath); err != nil {
+		log.Printf("Job %d: could not stat source file size: %v", job.ID, err)
+	} else if err := w.db.SetJobSourceSize(job.ID, int(size)); err != nil {
+		log.Printf("Job %d: could not store source file size: %v", job.ID, err)
+	}
+
 	partialPath := job.OutputPath + w.config.Config.PartialExtension
 
 	log.Printf("Starting job %d: %s -> %s", job.ID, job.Filepath, partialPath)
@@ -124,7 +130,15 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 		return w.retryOrFail(job, fmt.Sprintf("rename output: %v", err), output)
 	}
 
-	if err := w.db.SetJobCompleted(job.ID, output); err != nil {
+	var outputSize *int
+	if size, err := fileSize(job.OutputPath); err != nil {
+		log.Printf("Job %d: could not stat output file size: %v", job.ID, err)
+	} else {
+		s := int(size)
+		outputSize = &s
+	}
+
+	if err := w.db.SetJobCompleted(job.ID, output, outputSize); err != nil {
 		return fmt.Errorf("mark completed: %w", err)
 	}
 

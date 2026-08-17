@@ -5,6 +5,50 @@ import (
 	"testing"
 )
 
+func TestJobSizeRoundTrip(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	if _, err := d.CreateJob("/media/movie.mkv", "preset", "general", "/media/out/movie.mkv", 1); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	job, err := d.NextPendingJob()
+	if err != nil {
+		t.Fatalf("next pending job: %v", err)
+	}
+
+	// New jobs have no sizes.
+	if job.SourceSize != nil || job.OutputSize != nil {
+		t.Errorf("expected nil sizes on new job, got source=%v output=%v", job.SourceSize, job.OutputSize)
+	}
+
+	if err := d.SetJobSourceSize(job.ID, 1000); err != nil {
+		t.Fatalf("set source size: %v", err)
+	}
+	outputSize := 850
+	if err := d.SetJobCompleted(job.ID, "", &outputSize); err != nil {
+		t.Fatalf("set job completed: %v", err)
+	}
+
+	history, err := d.ListRecentHistory(10)
+	if err != nil {
+		t.Fatalf("list history: %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("expected 1 history job, got %d", len(history))
+	}
+	got := history[0]
+	if got.SourceSize == nil || *got.SourceSize != 1000 {
+		t.Errorf("expected source size 1000, got %v", got.SourceSize)
+	}
+	if got.OutputSize == nil || *got.OutputSize != 850 {
+		t.Errorf("expected output size 850, got %v", got.OutputSize)
+	}
+}
+
 func TestJobLogOutputRoundTrip(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -26,7 +70,7 @@ func TestJobLogOutputRoundTrip(t *testing.T) {
 	}
 
 	const want = "Encoding: done\nmuxing: done\n"
-	if err := d.SetJobCompleted(job.ID, want); err != nil {
+	if err := d.SetJobCompleted(job.ID, want, nil); err != nil {
 		t.Fatalf("set job completed: %v", err)
 	}
 
@@ -323,7 +367,7 @@ func TestDeleteJobOnlyRemovesHistoryRows(t *testing.T) {
 	if err := d.SetJobProcessing(pending.ID); err != nil {
 		t.Fatalf("mark processing: %v", err)
 	}
-	if err := d.SetJobCompleted(pending.ID, ""); err != nil {
+	if err := d.SetJobCompleted(pending.ID, "", nil); err != nil {
 		t.Fatalf("mark completed: %v", err)
 	}
 
@@ -404,7 +448,7 @@ func TestListCompletedJobs(t *testing.T) {
 	for _, j := range jobs {
 		switch j.Filepath {
 		case "/tmp/done.mkv":
-			if err := d.SetJobCompleted(j.ID, ""); err != nil {
+			if err := d.SetJobCompleted(j.ID, "", nil); err != nil {
 				t.Fatalf("complete job: %v", err)
 			}
 		case "/tmp/failed.mkv":

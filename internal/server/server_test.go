@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"testing"
 
 	"github.com/jsvensson/brakelight/internal/config"
@@ -78,7 +79,7 @@ func TestHistoryLogEndpoint(t *testing.T) {
 		t.Fatalf("next pending job: %v", err)
 	}
 	const logText = "muxing: done"
-	if err := d.SetJobCompleted(job.ID, logText); err != nil {
+	if err := d.SetJobCompleted(job.ID, logText, nil); err != nil {
 		t.Fatalf("set job completed: %v", err)
 	}
 
@@ -105,6 +106,57 @@ func TestHistoryLogEndpoint(t *testing.T) {
 	s.srv.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for unknown job, got %d", rec.Code)
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	start := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name     string
+		end      time.Time
+		expected string
+	}{
+		{"hours", start.Add(83 * time.Minute), "1h23m"},
+		{"minutes", start.Add(5*time.Minute + 30*time.Second), "5m30s"},
+		{"seconds", start.Add(42 * time.Second), "42s"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := formatDuration(&start, &c.end); got != c.expected {
+				t.Errorf("expected %q, got %q", c.expected, got)
+			}
+		})
+	}
+
+	if got := formatDuration(nil, &start); got != "-" {
+		t.Errorf("expected - for nil start, got %q", got)
+	}
+}
+
+func TestSizeChange(t *testing.T) {
+	jobWithSizes := func(source, output int) *db.Job {
+		return &db.Job{SourceSize: &source, OutputSize: &output}
+	}
+
+	if got := sizeChange(jobWithSizes(1000, 850)); got != "-15%" {
+		t.Errorf("expected -15%%, got %q", got)
+	}
+	if got := sizeChange(jobWithSizes(1000, 1200)); got != "+20%" {
+		t.Errorf("expected +20%%, got %q", got)
+	}
+	if got := sizeChange(&db.Job{}); got != "-" {
+		t.Errorf("expected - for nil sizes, got %q", got)
+	}
+
+	if got := sizeChangeClass(jobWithSizes(1000, 850)); got != "size-down" {
+		t.Errorf("expected size-down, got %q", got)
+	}
+	if got := sizeChangeClass(jobWithSizes(1000, 1200)); got != "size-up" {
+		t.Errorf("expected size-up, got %q", got)
+	}
+	if got := sizeChangeClass(&db.Job{}); got != "" {
+		t.Errorf("expected empty class for nil sizes, got %q", got)
 	}
 }
 
@@ -135,7 +187,7 @@ func TestReencodeRisk(t *testing.T) {
 		}
 		for _, j := range jobs {
 			if j.Filepath == source {
-				if err := d.SetJobCompleted(j.ID, ""); err != nil {
+				if err := d.SetJobCompleted(j.ID, "", nil); err != nil {
 					t.Fatalf("complete job: %v", err)
 				}
 				return

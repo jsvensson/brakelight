@@ -383,10 +383,13 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 
 func parseTemplates() (*template.Template, error) {
 	funcMap := template.FuncMap{
-		"formatTime": formatTime,
-		"base":       filepath.Base,
-		"add":        func(a, b int) int { return a + b },
-		"sub":        func(a, b int) int { return a - b },
+		"formatTime":      formatTime,
+		"formatDuration":  formatDuration,
+		"sizeChange":      sizeChange,
+		"sizeChangeClass": sizeChangeClass,
+		"base":            filepath.Base,
+		"add":             func(a, b int) int { return a + b },
+		"sub":             func(a, b int) int { return a - b },
 	}
 	return template.New("index.html").Funcs(funcMap).ParseFS(assets, "templates/index.html", "templates/queue.html", "templates/progress.html", "templates/log.html")
 }
@@ -396,5 +399,48 @@ func formatTime(t *time.Time) string {
 		return "-"
 	}
 	return t.Format("2006-01-02 15:04:05")
+}
+
+// formatDuration renders the elapsed time between two timestamps, e.g. "1h23m".
+func formatDuration(start, end *time.Time) string {
+	if start == nil || end == nil {
+		return "-"
+	}
+	d := end.Sub(*start).Round(time.Second)
+	if d < 0 {
+		return "-"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	switch {
+	case h > 0:
+		return fmt.Sprintf("%dh%02dm", h, m)
+	case m > 0:
+		return fmt.Sprintf("%dm%02ds", m, s)
+	default:
+		return fmt.Sprintf("%ds", s)
+	}
+}
+
+// sizeChange renders the file size change as a percentage, e.g. "-15%" or
+// "+20%". It returns "-" when either size is unknown.
+func sizeChange(job *db.Job) string {
+	if job.SourceSize == nil || job.OutputSize == nil || *job.SourceSize == 0 {
+		return "-"
+	}
+	pct := float64(*job.OutputSize-*job.SourceSize) / float64(*job.SourceSize) * 100
+	return fmt.Sprintf("%+.0f%%", pct)
+}
+
+// sizeChangeClass returns the CSS class for the size change direction.
+func sizeChangeClass(job *db.Job) string {
+	if job.SourceSize == nil || job.OutputSize == nil {
+		return ""
+	}
+	if *job.OutputSize > *job.SourceSize {
+		return "size-up"
+	}
+	return "size-down"
 }
 
