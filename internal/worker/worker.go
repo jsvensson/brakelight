@@ -155,7 +155,7 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 	if watch := w.config.WatchByName(job.WatchName); watch != nil && len(watch.PostCommands) > 0 {
 		var postBuf logBuffer
 		w.runPostCommands(ctx, watch.PostCommands, job.OutputPath, &postBuf)
-		if s := postBuf.String(); s != "" {
+		if s := postBuf.String(); len(s) > 0 {
 			if err := w.db.AppendJobLog(job.ID, s); err != nil {
 				log.Printf("Job %d: could not store post-command output: %v", job.ID, err)
 			}

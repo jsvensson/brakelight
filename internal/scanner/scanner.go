@@ -170,7 +170,7 @@ func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
 
 func (s *Scanner) queueFile(path string, watch config.Watch) error {
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	if base == "" {
+	if len(base) == 0 {
 		base = fmt.Sprintf("video_%d", time.Now().Unix())
 	}
 
