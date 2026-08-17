@@ -121,7 +121,7 @@ func Load(path string) (*Service, error) {
 
 // DBPath returns the path to the SQLite database.
 func (c *Config) DBPath() string {
-	supportDir := filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "HandBrakeWatch")
+	supportDir := filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "brakelight")
 	_ = os.MkdirAll(supportDir, 0o755)
 	return filepath.Join(supportDir, "queue.db")
 }
