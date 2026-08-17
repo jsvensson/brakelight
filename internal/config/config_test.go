@@ -185,6 +185,66 @@ func TestDBPath(t *testing.T) {
 	}
 }
 
+func TestDBPathCustomFile(t *testing.T) {
+	dir := t.TempDir()
+	dbFile := filepath.Join(dir, "nested", "myqueue.db")
+
+	path := writeConfig(t, `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+  db_file      = "`+dbFile+`"
+}
+
+watch "general" {
+  path   = "/media/watch"
+  preset = "Standard"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	got, err := svc.Config.DBPath()
+	if err != nil {
+		t.Fatalf("DBPath: %v", err)
+	}
+	if got != dbFile {
+		t.Errorf("expected custom db_file %q, got %q", dbFile, got)
+	}
+
+	if info, err := os.Stat(filepath.Dir(dbFile)); err != nil || !info.IsDir() {
+		t.Errorf("expected database dir to be created: %v", err)
+	}
+}
+
+func TestDBFileExpandsHome(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+  db_file      = "~/db/custom.db"
+}
+
+watch "general" {
+  path   = "/media/watch"
+  preset = "Standard"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	want := filepath.Join(os.Getenv("HOME"), "db", "custom.db")
+	if got := svc.Config.DBFile; got != want {
+		t.Errorf("expected expanded db_file %q, got %q", want, got)
+	}
+}
+
 func TestWatchByName(t *testing.T) {
 	svc := &Service{Watch: []Watch{{Name: "general"}, {Name: "animated"}}}
 

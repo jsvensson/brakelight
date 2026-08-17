@@ -35,6 +35,9 @@ config {
 
   # Optional: default preset for watch blocks without an explicit preset.
   default_preset    = "Standard"
+
+  # Optional: custom location for the queue database.
+  db_file           = "/data/brakelight/myqueue.db"
 }
 
 # A minimal setup for watching a directory.
@@ -65,6 +68,17 @@ watch "Animated" {
   ]
 }
 ```
+
+The queue database (`queue.db`) tracks pending, processing, and completed
+jobs. By default it is stored in the per-user application data directory:
+
+- macOS: `~/Library/Application Support/brakelight/queue.db`
+- Linux: `$XDG_CONFIG_HOME/brakelight/queue.db` (or `~/.config/brakelight/queue.db` when unset)
+- Windows: `%AppData%\brakelight\queue.db`
+
+Only macOS is currently supported. Use `db_file` in the config block to set a
+custom path and/or file name; relative paths resolve against the working
+directory.
 
 ## Run
 
