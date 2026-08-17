@@ -165,6 +165,26 @@ watch "general" {
 	}
 }
 
+func TestDBPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	cfg := &Config{}
+	got, err := cfg.DBPath()
+	if err != nil {
+		t.Fatalf("DBPath: %v", err)
+	}
+
+	want := filepath.Join(home, "Library", "Application Support", "brakelight", "queue.db")
+	if got != want {
+		t.Errorf("expected DBPath %q, got %q", want, got)
+	}
+
+	if info, err := os.Stat(filepath.Dir(got)); err != nil || !info.IsDir() {
+		t.Errorf("expected app support dir to be created: %v", err)
+	}
+}
+
 func TestWatchByName(t *testing.T) {
 	svc := &Service{Watch: []Watch{{Name: "general"}, {Name: "animated"}}}
 

@@ -120,10 +120,16 @@ func Load(path string) (*Service, error) {
 }
 
 // DBPath returns the path to the SQLite database.
-func (c *Config) DBPath() string {
-	supportDir := filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "brakelight")
-	_ = os.MkdirAll(supportDir, 0o755)
-	return filepath.Join(supportDir, "queue.db")
+func (c *Config) DBPath() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("locate user config dir: %w", err)
+	}
+	supportDir := filepath.Join(configDir, "brakelight")
+	if err := os.MkdirAll(supportDir, 0o755); err != nil {
+		return "", fmt.Errorf("create app support dir: %w", err)
+	}
+	return filepath.Join(supportDir, "queue.db"), nil
 }
 
 // PresetForDir returns the preset for a given watch directory.
