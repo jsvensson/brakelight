@@ -64,33 +64,33 @@ func Load(path string) (*Service, error) {
 		return nil, fmt.Errorf("missing required 'config' block")
 	}
 
-	if root.Config.OutputDir == "" {
+	if len(root.Config.OutputDir) == 0 {
 		return nil, fmt.Errorf("config.output_dir is required")
 	}
 	root.Config.OutputDir = expandPath(root.Config.OutputDir)
 
-	if root.Config.UserPresets == "" {
+	if len(root.Config.UserPresets) == 0 {
 		return nil, fmt.Errorf("config.user_presets is required")
 	}
 	root.Config.UserPresets = expandPath(root.Config.UserPresets)
 
-	if root.Config.LogFile != "" {
+	if len(root.Config.LogFile) > 0 {
 		root.Config.LogFile = expandPath(root.Config.LogFile)
 	}
 
-	if root.Config.DBFile != "" {
+	if len(root.Config.DBFile) > 0 {
 		root.Config.DBFile = expandPath(root.Config.DBFile)
 	}
 
-	if root.Config.HandBrakeCLI != "" {
+	if len(root.Config.HandBrakeCLI) > 0 {
 		root.Config.HandBrakeCLI = expandPath(root.Config.HandBrakeCLI)
 	}
 
-	if root.Config.ScanInterval == "" {
+	if len(root.Config.ScanInterval) == 0 {
 		root.Config.ScanInterval = ScanIntervalDefault
 	}
 
-	if root.Config.PartialExtension == "" {
+	if len(root.Config.PartialExtension) == 0 {
 		root.Config.PartialExtension = PartialExtensionDefault
 	}
 
@@ -98,7 +98,7 @@ func Load(path string) (*Service, error) {
 		root.Config.MaxAttempts = MaxAttemptsDefault
 	}
 
-	if root.Config.ListenAddr == "" {
+	if len(root.Config.ListenAddr) == 0 {
 		root.Config.ListenAddr = ":8080"
 	}
 
@@ -108,13 +108,13 @@ func Load(path string) (*Service, error) {
 
 	for i, w := range root.Watch {
 		root.Watch[i].Path = expandPath(w.Path)
-		if w.Preset == "" {
-			if root.Config.DefaultPreset == "" {
+		if len(w.Preset) == 0 {
+			if len(root.Config.DefaultPreset) == 0 {
 				return nil, fmt.Errorf("watch %q: preset is required and config.default_preset is not set", w.Name)
 			}
 			root.Watch[i].Preset = root.Config.DefaultPreset
 		}
-		if w.OutputDir == "" {
+		if len(w.OutputDir) == 0 {
 			root.Watch[i].OutputDir = root.Config.OutputDir
 		} else {
 			root.Watch[i].OutputDir = expandPath(w.OutputDir)
@@ -127,7 +127,7 @@ func Load(path string) (*Service, error) {
 // DBPath returns the path to the SQLite database: config.db_file when set,
 // otherwise queue.db in the per-user application data directory.
 func (c *Config) DBPath() (string, error) {
-	if c.DBFile != "" {
+	if len(c.DBFile) > 0 {
 		if err := os.MkdirAll(filepath.Dir(c.DBFile), 0o755); err != nil {
 			return "", fmt.Errorf("create database dir: %w", err)
 		}
@@ -167,7 +167,7 @@ func (s *Service) WatchByName(name string) *Watch {
 func expandPath(path string) string {
 	if path == "~" || (len(path) > 1 && path[:2] == "~/") {
 		home := os.Getenv("HOME")
-		if home == "" {
+		if len(home) == 0 {
 			return path
 		}
 		if path == "~" {

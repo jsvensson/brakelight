@@ -155,7 +155,7 @@ func TestSizeChange(t *testing.T) {
 	if got := sizeChangeClass(jobWithSizes(1000, 1200)); got != "size-up" {
 		t.Errorf("expected size-up, got %q", got)
 	}
-	if got := sizeChangeClass(&db.Job{}); got != "" {
+	if got := sizeChangeClass(&db.Job{}); len(got) > 0 {
 		t.Errorf("expected empty class for nil sizes, got %q", got)
 	}
 }

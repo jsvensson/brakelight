@@ -21,7 +21,7 @@ func main() {
 	flag.StringVar(&configPath, "config", "", "Path to HCL config file")
 	flag.Parse()
 
-	if configPath == "" {
+	if len(configPath) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: brakelight -config <path>")
 		os.Exit(1)
 	}
@@ -88,7 +88,7 @@ func main() {
 }
 
 func findHandBrakeCLI(override string) (string, error) {
-	if override != "" {
+	if len(override) > 0 {
 		if _, err := os.Stat(override); err == nil {
 			return override, nil
 		}
