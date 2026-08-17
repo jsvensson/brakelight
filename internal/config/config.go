@@ -23,6 +23,7 @@ type Config struct {
 	OutputDir        string `hcl:"output_dir"`
 	UserPresets      string `hcl:"user_presets"`
 	DefaultPreset    string `hcl:"default_preset,optional"`
+	DBFile           string `hcl:"db_file,optional"`
 	HandBrakeCLI     string `hcl:"handbrake_cli,optional"`
 	LogFile          string `hcl:"log_file,optional"`
 	ScanInterval     string `hcl:"scan_interval,optional"`
@@ -77,6 +78,10 @@ func Load(path string) (*Service, error) {
 		root.Config.LogFile = expandPath(root.Config.LogFile)
 	}
 
+	if root.Config.DBFile != "" {
+		root.Config.DBFile = expandPath(root.Config.DBFile)
+	}
+
 	if root.Config.HandBrakeCLI != "" {
 		root.Config.HandBrakeCLI = expandPath(root.Config.HandBrakeCLI)
 	}
@@ -119,8 +124,15 @@ func Load(path string) (*Service, error) {
 	return &Service{Config: root.Config, Watch: root.Watch}, nil
 }
 
-// DBPath returns the path to the SQLite database.
+// DBPath returns the path to the SQLite database: config.db_file when set,
+// otherwise queue.db in the per-user application data directory.
 func (c *Config) DBPath() (string, error) {
+	if c.DBFile != "" {
+		if err := os.MkdirAll(filepath.Dir(c.DBFile), 0o755); err != nil {
+			return "", fmt.Errorf("create database dir: %w", err)
+		}
+		return c.DBFile, nil
+	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("locate user config dir: %w", err)
