@@ -58,6 +58,49 @@ watch "plain" {
 	}
 }
 
+func TestWatchPreCommands(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+}
+
+watch "general" {
+  path   = "/media/watch"
+  preset = "Standard"
+  pre_commands = [
+    "touch /staging/{output_file}.lock",
+    "logger 'Starting: {output_file}'",
+  ]
+}
+
+watch "plain" {
+  path   = "/media/other"
+  preset = "Standard"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	got := svc.Watch[0].PreCommands
+	want := []string{"touch /staging/{output_file}.lock", "logger 'Starting: {output_file}'"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d pre commands, got %d", len(want), len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("pre_commands[%d]: expected %q, got %q", i, want[i], got[i])
+		}
+	}
+
+	if svc.Watch[1].PreCommands != nil {
+		t.Errorf("expected nil pre_commands when absent, got %v", svc.Watch[1].PreCommands)
+	}
+}
+
 func TestWatchByName(t *testing.T) {
 	svc := &Service{Watch: []Watch{{Name: "general"}, {Name: "animated"}}}
 

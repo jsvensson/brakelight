@@ -21,6 +21,13 @@ watch "Animated" {
   # Optional: overrides config.output_dir
   output_dir = "/media/encoded/animated"
 
+  # Optional: shell commands run before each encode starts.
+  # Same placeholders and behavior as post_commands, except that the
+  # output file does not exist yet at this point.
+  pre_commands = [
+    "logger 'Starting: {output_file}'",
+  ]
+
   # Optional: shell commands run after each encode completes.
   # {output} is the full path, {output_path} is its directory,
   # {output_file} is its basename.

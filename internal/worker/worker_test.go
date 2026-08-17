@@ -23,6 +23,47 @@ func TestSubstituteOutput(t *testing.T) {
 	}
 }
 
+func TestRunPreCommands(t *testing.T) {
+	dir := t.TempDir()
+	outputPath := filepath.Join(dir, "movie.mkv")
+
+	marker := filepath.Join(dir, "marker")
+	cmds := []string{
+		"echo starting: {output_file}",
+		"echo {output} > " + marker,
+		"echo ok | tr a-z A-Z",
+	}
+
+	var buf logBuffer
+	w := &Worker{}
+	w.runPreCommands(context.Background(), cmds, outputPath, &buf)
+
+	content, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("read marker: %v", err)
+	}
+	if strings.TrimSpace(string(content)) != outputPath {
+		t.Errorf("expected marker to contain %q, got %q", outputPath, content)
+	}
+
+	log := buf.String()
+	for _, want := range []string{"starting: movie.mkv", "OK"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("expected log to contain %q:\n%s", want, log)
+		}
+	}
+}
+
+func TestRunPreCommandsFailureIsLogged(t *testing.T) {
+	var buf logBuffer
+	w := &Worker{}
+	w.runPreCommands(context.Background(), []string{"exit 1"}, "/tmp/out.mkv", &buf)
+
+	if !strings.Contains(buf.String(), "pre-command failed") {
+		t.Errorf("expected failure to be recorded in log:\n%s", buf.String())
+	}
+}
+
 func TestRunPostCommands(t *testing.T) {
 	dir := t.TempDir()
 	outputPath := filepath.Join(dir, "movie.mkv")
