@@ -17,24 +17,29 @@ import (
 	"github.com/jsvensson/brakelight/internal/worker"
 )
 
-// The vendored htmx 1.9.12 minified file must be byte-exact. A corrupted
-// vendored asset silently breaks all htmx interactions in the UI.
-func TestEmbeddedHtmxIntegrity(t *testing.T) {
-	const wantSHA256 = "449317ade7881e949510db614991e195c3a099c4c791c24dacec55f9f4a2a452"
-
-	f, err := assets.Open("templates/htmx.min.js")
-	if err != nil {
-		t.Fatalf("open embedded htmx: %v", err)
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		t.Fatalf("read embedded htmx: %v", err)
+// The vendored htmx 2.0.10 and htmx-ext-sse 2.2.4 files must be byte-exact.
+// A corrupted vendored asset silently breaks all htmx interactions in the UI.
+func TestEmbeddedJSIntegrity(t *testing.T) {
+	files := map[string]string{
+		"templates/htmx.min.js": "71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de",
+		"templates/sse.js":      "3b5992a541619babefc4c169505af474df5c3039da51e59b96ccf9241ecd61d2",
 	}
 
-	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != wantSHA256 {
-		t.Errorf("htmx.min.js sha256 mismatch:\ngot:  %s\nwant: %s", got, wantSHA256)
+	for name, wantSHA256 := range files {
+		f, err := assets.Open(name)
+		if err != nil {
+			t.Fatalf("open embedded %s: %v", name, err)
+		}
+
+		data, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", name, err)
+		}
+
+		if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != wantSHA256 {
+			t.Errorf("%s sha256 mismatch:\ngot:  %s\nwant: %s", name, got, wantSHA256)
+		}
 	}
 }
 

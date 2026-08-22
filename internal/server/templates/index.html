@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Brakelight</title>
     <script src="/htmx.min.js"></script>
+    <script src="/sse.js"></script>
     <script>
         document.addEventListener('htmx:sseMessage', function () {
             var el = document.querySelector('#encode-progress [data-title]');
@@ -231,7 +232,7 @@
 
         <div class="section">
             <h2>Encoding progress</h2>
-            <div id="encode-progress" hx-sse="connect:/events swap:progress">
+            <div id="encode-progress" hx-ext="sse" sse-connect="/events" sse-swap="progress">
                 <div class="empty">Idle</div>
             </div>
         </div>
