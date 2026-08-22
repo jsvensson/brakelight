@@ -12,7 +12,7 @@ func TestJobSizeRoundTrip(t *testing.T) {
 	}
 	defer d.Close()
 
-	if _, err := d.CreateJob("/media/movie.mkv", "preset", "general", "/media/out/movie.mkv", 1); err != nil {
+	if _, err := d.CreateJob(NewJob{Filepath: "/media/movie.mkv", Preset: "preset", WatchName: "general", OutputPath: "/media/out/movie.mkv", Position: 1}); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 	job, err := d.NextPendingJob()
@@ -56,7 +56,7 @@ func TestJobLogOutputRoundTrip(t *testing.T) {
 	}
 	defer d.Close()
 
-	if _, err := d.CreateJob("/media/movie.mkv", "preset", "general", "/media/out/movie.mkv", 1); err != nil {
+	if _, err := d.CreateJob(NewJob{Filepath: "/media/movie.mkv", Preset: "preset", WatchName: "general", OutputPath: "/media/out/movie.mkv", Position: 1}); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 	job, err := d.NextPendingJob()
@@ -65,8 +65,8 @@ func TestJobLogOutputRoundTrip(t *testing.T) {
 	}
 
 	// Pending jobs are not history yet.
-	if _, _, found, err := d.GetJobLog(job.ID); err != nil || found {
-		t.Errorf("expected pending job to have no history log, found=%v err=%v", found, err)
+	if jobLog, err := d.GetJobLog(job.ID); err != nil || jobLog != nil {
+		t.Errorf("expected pending job to have no history log, jobLog=%v err=%v", jobLog, err)
 	}
 
 	const want = "Encoding: done\nmuxing: done\n"
@@ -74,22 +74,22 @@ func TestJobLogOutputRoundTrip(t *testing.T) {
 		t.Fatalf("set job completed: %v", err)
 	}
 
-	source, got, found, err := d.GetJobLog(job.ID)
+	jobLog, err := d.GetJobLog(job.ID)
 	if err != nil {
 		t.Fatalf("get job log: %v", err)
 	}
-	if !found {
+	if jobLog == nil {
 		t.Fatal("expected completed job to be found")
 	}
-	if got != want {
-		t.Errorf("expected log %q, got %q", want, got)
+	if jobLog.LogOutput != want {
+		t.Errorf("expected log %q, got %q", want, jobLog.LogOutput)
 	}
-	if source != "/media/movie.mkv" {
-		t.Errorf("expected filepath /media/movie.mkv, got %q", source)
+	if jobLog.Filepath != "/media/movie.mkv" {
+		t.Errorf("expected filepath /media/movie.mkv, got %q", jobLog.Filepath)
 	}
 
-	if _, _, found, err := d.GetJobLog(9999); err != nil || found {
-		t.Errorf("expected unknown id to be not found, found=%v err=%v", found, err)
+	if jobLog, err := d.GetJobLog(9999); err != nil || jobLog != nil {
+		t.Errorf("expected unknown id to be not found, jobLog=%v err=%v", jobLog, err)
 	}
 }
 
@@ -255,7 +255,7 @@ func TestMoveJobToPosition(t *testing.T) {
 	defer d.Close()
 
 	for i, name := range []string{"a.mkv", "b.mkv", "c.mkv"} {
-		if _, err := d.CreateJob("/tmp/"+name, "preset", "general", "/tmp/out/"+name, int64(i+1)); err != nil {
+		if _, err := d.CreateJob(NewJob{Filepath: "/tmp/" + name, Preset: "preset", WatchName: "general", OutputPath: "/tmp/out/" + name, Position: int64(i + 1)}); err != nil {
 			t.Fatalf("create job: %v", err)
 		}
 	}
@@ -295,7 +295,7 @@ func TestCreateJobIgnoresDuplicates(t *testing.T) {
 	}
 	defer d.Close()
 
-	id, err := d.CreateJob("/tmp/a.mkv", "preset", "general", "/tmp/out/a.mkv", 1)
+	id, err := d.CreateJob(NewJob{Filepath: "/tmp/a.mkv", Preset: "preset", WatchName: "general", OutputPath: "/tmp/out/a.mkv", Position: 1})
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestCreateJobIgnoresDuplicates(t *testing.T) {
 		t.Error("expected first insert to succeed")
 	}
 
-	id, err = d.CreateJob("/tmp/a.mkv", "preset", "general", "/tmp/out/a.mkv", 2)
+	id, err = d.CreateJob(NewJob{Filepath: "/tmp/a.mkv", Preset: "preset", WatchName: "general", OutputPath: "/tmp/out/a.mkv", Position: 2})
 	if err != nil {
 		t.Fatalf("duplicate create job: %v", err)
 	}
@@ -321,16 +321,16 @@ func TestCreateJobDuplicatesDoNotBurnIDs(t *testing.T) {
 	}
 	defer d.Close()
 
-	if _, err := d.CreateJob("/tmp/a.mkv", "preset", "general", "/tmp/out/a.mkv", 1); err != nil {
+	if _, err := d.CreateJob(NewJob{Filepath: "/tmp/a.mkv", Preset: "preset", WatchName: "general", OutputPath: "/tmp/out/a.mkv", Position: 1}); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 	for range 100 {
-		if _, err := d.CreateJob("/tmp/a.mkv", "preset", "general", "/tmp/out/a.mkv", 1); err != nil {
+		if _, err := d.CreateJob(NewJob{Filepath: "/tmp/a.mkv", Preset: "preset", WatchName: "general", OutputPath: "/tmp/out/a.mkv", Position: 1}); err != nil {
 			t.Fatalf("duplicate create job: %v", err)
 		}
 	}
 
-	if _, err := d.CreateJob("/tmp/b.mkv", "preset", "general", "/tmp/out/b.mkv", 2); err != nil {
+	if _, err := d.CreateJob(NewJob{Filepath: "/tmp/b.mkv", Preset: "preset", WatchName: "general", OutputPath: "/tmp/out/b.mkv", Position: 2}); err != nil {
 		t.Fatalf("create second job: %v", err)
 	}
 
@@ -353,10 +353,10 @@ func TestDeleteJobOnlyRemovesHistoryRows(t *testing.T) {
 	}
 	defer d.Close()
 
-	if _, err := d.CreateJob("/tmp/pending.mkv", "preset", "general", "/tmp/out/pending.mkv", 1); err != nil {
+	if _, err := d.CreateJob(NewJob{Filepath: "/tmp/pending.mkv", Preset: "preset", WatchName: "general", OutputPath: "/tmp/out/pending.mkv", Position: 1}); err != nil {
 		t.Fatalf("create pending job: %v", err)
 	}
-	if _, err := d.CreateJob("/tmp/done.mkv", "preset", "general", "/tmp/out/done.mkv", 2); err != nil {
+	if _, err := d.CreateJob(NewJob{Filepath: "/tmp/done.mkv", Preset: "preset", WatchName: "general", OutputPath: "/tmp/out/done.mkv", Position: 2}); err != nil {
 		t.Fatalf("create completed job: %v", err)
 	}
 
@@ -412,7 +412,7 @@ func TestJobWatchNameRoundTrip(t *testing.T) {
 	}
 	defer d.Close()
 
-	if _, err := d.CreateJob("/tmp/a.mkv", "preset", "animated", "/tmp/out/a.mkv", 1); err != nil {
+	if _, err := d.CreateJob(NewJob{Filepath: "/tmp/a.mkv", Preset: "preset", WatchName: "animated", OutputPath: "/tmp/out/a.mkv", Position: 1}); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 
@@ -436,7 +436,7 @@ func TestListCompletedJobs(t *testing.T) {
 	defer d.Close()
 
 	for _, name := range []string{"done.mkv", "failed.mkv", "pending.mkv"} {
-		if _, err := d.CreateJob("/tmp/"+name, "preset", "general", "/tmp/out/"+name, 1); err != nil {
+		if _, err := d.CreateJob(NewJob{Filepath: "/tmp/" + name, Preset: "preset", WatchName: "general", OutputPath: "/tmp/out/" + name, Position: 1}); err != nil {
 			t.Fatalf("create job: %v", err)
 		}
 	}
