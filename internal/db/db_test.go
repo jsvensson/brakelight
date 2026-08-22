@@ -295,19 +295,19 @@ func TestCreateJobIgnoresDuplicates(t *testing.T) {
 	}
 	defer d.Close()
 
-	created, err := d.CreateJob("/tmp/a.mkv", "preset", "general", "/tmp/out/a.mkv", 1)
+	id, err := d.CreateJob("/tmp/a.mkv", "preset", "general", "/tmp/out/a.mkv", 1)
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
-	if !created {
+	if id == 0 {
 		t.Error("expected first insert to succeed")
 	}
 
-	created, err = d.CreateJob("/tmp/a.mkv", "preset", "general", "/tmp/out/a.mkv", 2)
+	id, err = d.CreateJob("/tmp/a.mkv", "preset", "general", "/tmp/out/a.mkv", 2)
 	if err != nil {
 		t.Fatalf("duplicate create job: %v", err)
 	}
-	if created {
+	if id > 0 {
 		t.Error("expected duplicate insert to be ignored")
 	}
 }

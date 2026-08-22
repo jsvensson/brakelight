@@ -36,7 +36,7 @@ func TestRunPreCommands(t *testing.T) {
 
 	var buf logBuffer
 	w := &Worker{}
-	w.runPreCommands(context.Background(), cmds, outputPath, &buf)
+	w.runPreCommands(context.Background(), 1, cmds, outputPath, &buf)
 
 	content, err := os.ReadFile(marker)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestRunPreCommands(t *testing.T) {
 func TestRunPreCommandsFailureIsLogged(t *testing.T) {
 	var buf logBuffer
 	w := &Worker{}
-	w.runPreCommands(context.Background(), []string{"exit 1"}, "/tmp/out.mkv", &buf)
+	w.runPreCommands(context.Background(), 1, []string{"exit 1"}, "/tmp/out.mkv", &buf)
 
 	if !strings.Contains(buf.String(), "pre-command failed") {
 		t.Errorf("expected failure to be recorded in log:\n%s", buf.String())
@@ -80,7 +80,7 @@ func TestRunPostCommands(t *testing.T) {
 
 	var buf logBuffer
 	w := &Worker{}
-	w.runPostCommands(context.Background(), cmds, outputPath, &buf)
+	w.runPostCommands(context.Background(), 1, cmds, outputPath, &buf)
 
 	content, err := os.ReadFile(marker)
 	if err != nil {
@@ -101,7 +101,7 @@ func TestRunPostCommands(t *testing.T) {
 func TestRunPostCommandsFailureIsLogged(t *testing.T) {
 	var buf logBuffer
 	w := &Worker{}
-	w.runPostCommands(context.Background(), []string{"exit 1"}, "/tmp/out.mkv", &buf)
+	w.runPostCommands(context.Background(), 1, []string{"exit 1"}, "/tmp/out.mkv", &buf)
 
 	if !strings.Contains(buf.String(), "post-command failed") {
 		t.Errorf("expected failure to be recorded in log:\n%s", buf.String())
