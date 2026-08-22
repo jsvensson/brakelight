@@ -142,7 +142,8 @@ CREATE TABLE IF NOT EXISTS service_state (
 }
 
 // CreateJob inserts a new job if one does not already exist for the filepath.
-func (db *DB) CreateJob(filepath, preset, watchName, outputPath string, position int64) (bool, error) {
+// It returns the ID of the new job, or 0 if the job already existed.
+func (db *DB) CreateJob(filepath, preset, watchName, outputPath string, position int64) (int64, error) {
 	// Check existence first: INSERT OR IGNORE against the UNIQUE constraint
 	// still consumes an AUTOINCREMENT id on every ignored attempt, and the
 	// scanner calls this for already-queued files on every scan cycle. The
@@ -150,16 +151,16 @@ func (db *DB) CreateJob(filepath, preset, watchName, outputPath string, position
 	// OR IGNORE as a correctness fallback in case of a race.
 	tx, err := db.conn.Begin()
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	defer tx.Rollback()
 
 	var exists int
 	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM jobs WHERE filepath = ?)`, filepath).Scan(&exists); err != nil {
-		return false, err
+		return 0, err
 	}
 	if exists == 1 {
-		return false, nil
+		return 0, nil
 	}
 
 	res, err := tx.Exec(
@@ -167,16 +168,23 @@ func (db *DB) CreateJob(filepath, preset, watchName, outputPath string, position
 		filepath, preset, watchName, outputPath, position,
 	)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, err
+		return 0, err
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
-		return false, err
+		return 0, err
 	}
-	return n > 0, nil
+	return id, nil
 }
 
 // NextPendingJob returns the pending job with the lowest position.

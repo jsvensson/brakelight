@@ -188,12 +188,12 @@ func (s *Scanner) queueFile(path string, watch config.Watch) error {
 	// Any existing job row for this filepath (pending, processing, completed,
 	// or failed) blocks re-queueing. A file whose output was moved away is
 	// only re-encoded once its history row is removed.
-	created, err := s.db.CreateJob(path, watch.Preset, watch.Name, outputPath, pos)
+	id, err := s.db.CreateJob(path, watch.Preset, watch.Name, outputPath, pos)
 	if err != nil {
 		return err
 	}
-	if created {
-		log.Printf("Queued: %s [%s]", path, watch.Preset)
+	if id > 0 {
+		log.Printf("Queued job %d: %s [%s]", id, path, watch.Preset)
 	}
 
 	return nil
