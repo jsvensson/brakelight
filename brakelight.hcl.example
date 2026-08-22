@@ -15,30 +15,31 @@ config {
   db_file           = "/data/brakelight/myqueue.db"
 }
 
+# A minimal setup that inherits default values from the config block.
 watch "General" {
   path   = "/media/general"
-  preset = "Standard"
 }
 
 watch "Animated" {
   path   = "/media/animated"
+
+  # Optional: use a different Handbrake preset.
   preset = "Animated"
 
   # Optional: overrides config.output_dir
   output_dir = "/media/encoded/animated"
 
   # Optional: shell commands run before each encode starts.
-  # Same placeholders and behavior as post_commands, except that the
-  # output file does not exist yet at this point.
+  # {output} is the full path, {output_path} is its directory,
+  # {output_file} is its basename.
+  # Commands run with /bin/sh -c; failures are logged but do not
+  # affect the job status.
   pre_commands = [
     "logger 'Starting: {output_file}'",
   ]
 
   # Optional: shell commands run after each encode completes.
-  # {output} is the full path, {output_path} is its directory,
-  # {output_file} is its basename.
-  # Commands run with /bin/sh -c; failures are logged but do not
-  # affect the job status.
+  # Uses the same placeholders as pre_commands.
   post_commands = [
     "logger 'Encoded: {output_file}'",
   ]
