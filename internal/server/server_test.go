@@ -76,7 +76,7 @@ func TestHistoryLogEndpoint(t *testing.T) {
 
 	s := New(d, &config.Service{Config: &config.Config{}}, &worker.Progress{})
 
-	if _, err := d.CreateJob("/media/movie.mkv", "preset", "general", "/media/out/movie.mkv", 1); err != nil {
+	if _, err := d.CreateJob(db.NewJob{Filepath: "/media/movie.mkv", Preset: "preset", WatchName: "general", OutputPath: "/media/out/movie.mkv", Position: 1}); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
 	job, err := d.NextPendingJob()
@@ -183,7 +183,7 @@ func TestReencodeRisk(t *testing.T) {
 
 	completeJob := func(t *testing.T, source, output string) {
 		t.Helper()
-		if _, err := d.CreateJob(source, "preset", "test", output, 1); err != nil {
+		if _, err := d.CreateJob(db.NewJob{Filepath: source, Preset: "preset", WatchName: "test", OutputPath: output, Position: 1}); err != nil {
 			t.Fatalf("create job: %v", err)
 		}
 		jobs, err := d.ListPendingJobs()

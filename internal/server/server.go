@@ -249,17 +249,17 @@ func (s *Server) handleHistoryLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filepath, logOutput, found, err := s.db.GetJobLog(id)
+	jobLog, err := s.db.GetJobLog(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if !found {
+	if jobLog == nil {
 		http.NotFound(w, r)
 		return
 	}
 
-	renderTemplate(w, "templates/log.html", logView{Filename: filepath, Log: logOutput})
+	renderTemplate(w, "templates/log.html", logView{Filename: jobLog.Filepath, Log: jobLog.LogOutput})
 }
 
 // logView is the data passed to the log fragment template.

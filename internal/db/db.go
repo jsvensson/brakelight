@@ -32,6 +32,21 @@ type DB struct {
 	conn *sql.DB
 }
 
+// NewJob holds the parameters for creating a job.
+type NewJob struct {
+	Filepath   string
+	Preset     string
+	WatchName  string
+	OutputPath string
+	Position   int64
+}
+
+// JobLog holds the stored log output for a completed or failed job.
+type JobLog struct {
+	Filepath  string
+	LogOutput string
+}
+
 // Open opens the SQLite database and initializes the schema.
 func Open(path string) (*DB, error) {
 	conn, err := sql.Open("sqlite", path)
@@ -143,7 +158,7 @@ CREATE TABLE IF NOT EXISTS service_state (
 
 // CreateJob inserts a new job if one does not already exist for the filepath.
 // It returns the ID of the new job, or 0 if the job already existed.
-func (db *DB) CreateJob(filepath, preset, watchName, outputPath string, position int64) (int64, error) {
+func (db *DB) CreateJob(job NewJob) (int64, error) {
 	// Check existence first: INSERT OR IGNORE against the UNIQUE constraint
 	// still consumes an AUTOINCREMENT id on every ignored attempt, and the
 	// scanner calls this for already-queued files on every scan cycle. The
@@ -156,7 +171,7 @@ func (db *DB) CreateJob(filepath, preset, watchName, outputPath string, position
 	defer tx.Rollback()
 
 	var exists int
-	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM jobs WHERE filepath = ?)`, filepath).Scan(&exists); err != nil {
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM jobs WHERE filepath = ?)`, job.Filepath).Scan(&exists); err != nil {
 		return 0, err
 	}
 	if exists == 1 {
@@ -165,7 +180,7 @@ func (db *DB) CreateJob(filepath, preset, watchName, outputPath string, position
 
 	res, err := tx.Exec(
 		`INSERT OR IGNORE INTO jobs (filepath, preset, watch_name, output_path, status, position, attempts) VALUES (?, ?, ?, ?, 'pending', ?, 0)`,
-		filepath, preset, watchName, outputPath, position,
+		job.Filepath, job.Preset, job.WatchName, job.OutputPath, job.Position,
 	)
 	if err != nil {
 		return 0, err
@@ -390,23 +405,23 @@ func (db *DB) CancelJob(id int64) error {
 	return err
 }
 
-// GetJobLog returns the source filepath and stored CLI log output for a
-// completed or failed job. The third return value reports whether the job
-// exists in history.
-func (db *DB) GetJobLog(id int64) (string, string, bool, error) {
-	var filepath string
+// GetJobLog returns the stored log output for a completed or failed job.
+// It returns nil if the job does not exist in history.
+func (db *DB) GetJobLog(id int64) (*JobLog, error) {
+	var log JobLog
 	var logOut sql.NullString
 	err := db.conn.QueryRow(
 		`SELECT filepath, log_output FROM jobs WHERE id = ? AND status IN ('completed', 'failed')`,
 		id,
-	).Scan(&filepath, &logOut)
+	).Scan(&log.Filepath, &logOut)
 	if err == sql.ErrNoRows {
-		return "", "", false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return "", "", false, err
+		return nil, err
 	}
-	return filepath, logOut.String, true, nil
+	log.LogOutput = logOut.String
+	return &log, nil
 }
 
 // ClearHistory deletes all completed and failed jobs.
