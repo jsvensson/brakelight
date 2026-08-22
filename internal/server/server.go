@@ -39,6 +39,7 @@ func New(database *db.DB, cfg *config.Service, progress *worker.Progress) *Serve
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /htmx.min.js", http.FileServerFS(fsys))
+	mux.Handle("GET /sse.js", http.FileServerFS(fsys))
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /queue", s.handleQueueFragment)
 	mux.HandleFunc("GET /events", s.handleEvents)

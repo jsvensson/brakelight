@@ -165,7 +165,7 @@
                     <button class="secondary"
                         hx-get="/history/{{ .ID }}/log"
                         hx-target="#log-modal-content"
-                        hx-on::after-request="document.getElementById('log-modal').hidden = false">Output</button>
+                        hx-on:htmx:after-request="document.getElementById('log-modal').hidden = false">Output</button>
                     {{ end }}
                     <button class="secondary"
                         hx-post="/history/{{ .ID }}/forget"
