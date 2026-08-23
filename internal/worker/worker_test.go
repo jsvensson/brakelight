@@ -8,6 +8,9 @@ import (
 	"testing"
 )
 
+// The {output}, {output_file}, and {output_path} placeholders in
+// pre/post commands are replaced with the full output path, its basename,
+// and its directory. Commands without placeholders pass through unchanged.
 func TestSubstituteOutput(t *testing.T) {
 	const outputPath = "/media/encoded/My Movie.mkv"
 
@@ -23,6 +26,8 @@ func TestSubstituteOutput(t *testing.T) {
 	}
 }
 
+// Pre-commands run in order through the shell with placeholders substituted,
+// and their stdout is captured in the job log.
 func TestRunPreCommands(t *testing.T) {
 	dir := t.TempDir()
 	outputPath := filepath.Join(dir, "movie.mkv")
@@ -58,6 +63,8 @@ func TestRunPreCommands(t *testing.T) {
 	}
 }
 
+// A failing pre-command is recorded in the job log and returned in the
+// failures list identifying the command; the remaining commands still run.
 func TestRunPreCommandsFailureIsLogged(t *testing.T) {
 	var buf logBuffer
 	w := &Worker{}
@@ -75,6 +82,8 @@ func TestRunPreCommandsFailureIsLogged(t *testing.T) {
 	}
 }
 
+// Post-commands run in order through the shell with placeholders
+// substituted, and their stdout is captured in the job log.
 func TestRunPostCommands(t *testing.T) {
 	dir := t.TempDir()
 	outputPath := filepath.Join(dir, "movie.mkv")
@@ -113,6 +122,8 @@ func TestRunPostCommands(t *testing.T) {
 	}
 }
 
+// A failing post-command is recorded in the job log and returned in the
+// failures list identifying the command; the remaining commands still run.
 func TestRunPostCommandsFailureIsLogged(t *testing.T) {
 	var buf logBuffer
 	w := &Worker{}

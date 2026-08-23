@@ -7,6 +7,8 @@ import (
 
 const sampleProgressLine = "Encoding: task 1 of 2, 34.52 % (123.45 fps, avg 98.76 fps, ETA 00h12m03s)"
 
+// A HandBrakeCLI "Encoding: task ..." line is recognized as progress and its
+// task, percent, fps, and ETA fields are parsed into the snapshot.
 func TestUpdateLineParsesProgress(t *testing.T) {
 	p := &Progress{}
 	p.Start(42)
@@ -36,6 +38,8 @@ func TestUpdateLineParsesProgress(t *testing.T) {
 	}
 }
 
+// Ordinary HandBrakeCLI output lines are not progress and must leave the
+// snapshot untouched.
 func TestUpdateLineIgnoresNonProgress(t *testing.T) {
 	p := &Progress{}
 	p.Start(1)
@@ -56,6 +60,8 @@ func TestUpdateLineIgnoresNonProgress(t *testing.T) {
 	}
 }
 
+// Start resets any stale progress from a previous job, and Stop marks the
+// snapshot inactive.
 func TestProgressStartStop(t *testing.T) {
 	p := &Progress{}
 	p.UpdateLine(sampleProgressLine)
@@ -69,6 +75,8 @@ func TestProgressStartStop(t *testing.T) {
 	}
 }
 
+// The progress scanner must split tokens on \r, \n, and \r\n, since
+// HandBrakeCLI uses all three as line terminators.
 func TestSplitLinesHandlesCRandLF(t *testing.T) {
 	input := "line one\rline two\nline three\r\nline four"
 	s := NewProgressScanner(strings.NewReader(input))
@@ -92,6 +100,9 @@ func TestSplitLinesHandlesCRandLF(t *testing.T) {
 	}
 }
 
+// End to end: feeding a \r-separated stream through the scanner yields each
+// in-place progress rewrite as its own line, so the snapshot ends up with the
+// last reported percent.
 func TestScannerFeedsProgressFromCRStream(t *testing.T) {
 	// Simulates HandBrakeCLI rewriting progress in place with \r.
 	stream := "Scanning new sources...\n" +

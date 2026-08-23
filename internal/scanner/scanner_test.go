@@ -48,6 +48,9 @@ func pendingCount(t *testing.T, d *db.DB) int {
 	return len(jobs)
 }
 
+// A file must be seen unchanged in two consecutive scans before it is
+// queued, so the first scan only records sizes and queues nothing. The first
+// scan must also not block waiting for files to settle.
 func TestScanQueuesAllStableFilesOnSecondPass(t *testing.T) {
 	watchDir := t.TempDir()
 	s, d := newTestScanner(t, watchDir)
@@ -71,6 +74,8 @@ func TestScanQueuesAllStableFilesOnSecondPass(t *testing.T) {
 	}
 }
 
+// A file whose size grows between scans is still being copied and must stay
+// unqueued until its size is stable across two scans.
 func TestScanSkipsGrowingFile(t *testing.T) {
 	watchDir := t.TempDir()
 	s, d := newTestScanner(t, watchDir)
@@ -92,6 +97,8 @@ func TestScanSkipsGrowingFile(t *testing.T) {
 	}
 }
 
+// The queued job's output path must be placed in the watch's configured
+// output directory, not the global default.
 func TestScanUsesWatchOutputDir(t *testing.T) {
 	watchDir := t.TempDir()
 	s, d := newTestScanner(t, watchDir)
@@ -115,6 +122,8 @@ func TestScanUsesWatchOutputDir(t *testing.T) {
 	}
 }
 
+// Zero-byte files are placeholders or failed copies and must never be
+// queued.
 func TestScanSkipsEmptyFile(t *testing.T) {
 	watchDir := t.TempDir()
 	s, d := newTestScanner(t, watchDir)
@@ -128,6 +137,9 @@ func TestScanSkipsEmptyFile(t *testing.T) {
 	}
 }
 
+// A completed history row prevents the source file from being re-queued even
+// when its output file has been moved away; only clearing history makes the
+// file eligible again.
 func TestScanDoesNotRequeueCompletedJobWithMissingOutput(t *testing.T) {
 	watchDir := t.TempDir()
 	s, d := newTestScanner(t, watchDir)

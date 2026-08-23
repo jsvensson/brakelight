@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+// Source and output sizes are nil on a new job and are stored once known, so
+// history entries can show how much the encode shrank the file.
 func TestJobSizeRoundTrip(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -49,6 +51,8 @@ func TestJobSizeRoundTrip(t *testing.T) {
 	}
 }
 
+// GetJobLog returns a completed job's stored CLI output and source path.
+// Pending jobs and unknown ids return no result rather than an error.
 func TestJobLogOutputRoundTrip(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -93,6 +97,8 @@ func TestJobLogOutputRoundTrip(t *testing.T) {
 	}
 }
 
+// Pre/post command failures accumulate on the job and are readable from
+// history, and retrying the job clears them for the next attempt.
 func TestJobCommandErrorsRoundTrip(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -148,6 +154,8 @@ func TestJobCommandErrorsRoundTrip(t *testing.T) {
 	}
 }
 
+// A fresh database reports both encoding and scanning as active, so the
+// service runs without requiring an explicit unpause.
 func TestServiceStateDefaultsToActive(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -172,6 +180,8 @@ func TestServiceStateDefaultsToActive(t *testing.T) {
 	}
 }
 
+// The encoding and scanning pause flags are independent: pausing one must
+// not affect the other, and resuming restores the active state.
 func TestServiceStateRoundTrip(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -224,6 +234,7 @@ func TestServiceStateRoundTrip(t *testing.T) {
 	}
 }
 
+// The paused state is stored in the database and survives a service restart.
 func TestServiceStatePersistsAcrossReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 
@@ -259,6 +270,9 @@ func TestServiceStatePersistsAcrossReopen(t *testing.T) {
 	}
 }
 
+// Databases written before the pause state was split carry a single legacy
+// 'active' key; opening them migrates it to the per-feature encoding and
+// scanning flags and removes the legacy key.
 func TestLegacyActiveStateMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 
@@ -302,6 +316,8 @@ func TestLegacyActiveStateMigration(t *testing.T) {
 	}
 }
 
+// Moving a pending job to a new queue position shifts the jobs in between
+// while preserving their relative order.
 func TestMoveJobToPosition(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -343,6 +359,8 @@ func TestMoveJobToPosition(t *testing.T) {
 	}
 }
 
+// Creating a job for an already-queued filepath is silently ignored (id 0,
+// no error) instead of inserting a duplicate.
 func TestCreateJobIgnoresDuplicates(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -401,6 +419,8 @@ func TestCreateJobDuplicatesDoNotBurnIDs(t *testing.T) {
 	}
 }
 
+// DeleteJob removes history rows but refuses to touch pending jobs, so the
+// UI's delete action cannot be used to cancel queued work.
 func TestDeleteJobOnlyRemovesHistoryRows(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -460,6 +480,8 @@ func mustListPending(t *testing.T, d *DB) []*Job {
 	return jobs
 }
 
+// The watch name recorded at job creation is stored and returned with the
+// job, so the UI can show which watch directory produced it.
 func TestJobWatchNameRoundTrip(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -483,6 +505,8 @@ func TestJobWatchNameRoundTrip(t *testing.T) {
 	}
 }
 
+// ListCompletedJobs returns only successfully completed jobs, excluding
+// failed and still-pending ones.
 func TestListCompletedJobs(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

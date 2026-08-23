@@ -15,6 +15,8 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
+// A watch's post_commands list is parsed in order, and a watch without the
+// key gets nil rather than an empty list.
 func TestWatchPostCommands(t *testing.T) {
 	path := writeConfig(t, `
 config {
@@ -58,6 +60,8 @@ watch "plain" {
 	}
 }
 
+// A watch's pre_commands list is parsed in order, and a watch without the
+// key gets nil rather than an empty list.
 func TestWatchPreCommands(t *testing.T) {
 	path := writeConfig(t, `
 config {
@@ -101,6 +105,8 @@ watch "plain" {
 	}
 }
 
+// fail_on_pre_command_error is honored when set on a watch and defaults to
+// false when absent.
 func TestWatchFailOnPreCommandError(t *testing.T) {
 	path := writeConfig(t, `
 config {
@@ -133,6 +139,7 @@ watch "plain" {
 	}
 }
 
+// A watch without an explicit preset inherits the config's default_preset.
 func TestWatchPresetDefaultsToConfigDefaultPreset(t *testing.T) {
 	path := writeConfig(t, `
 config {
@@ -156,6 +163,7 @@ watch "general" {
 	}
 }
 
+// A watch's explicit preset wins over the config's default_preset.
 func TestWatchPresetOverridesConfigDefaultPreset(t *testing.T) {
 	path := writeConfig(t, `
 config {
@@ -180,6 +188,8 @@ watch "animated" {
 	}
 }
 
+// Loading fails when a watch has no preset and the config provides no
+// default_preset to fall back on.
 func TestWatchPresetRequiredWithoutDefaultPreset(t *testing.T) {
 	path := writeConfig(t, `
 config {
@@ -197,6 +207,8 @@ watch "general" {
 	}
 }
 
+// Without a db_file setting, the database lives in the per-user application
+// support directory, which is created if missing.
 func TestDBPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -217,6 +229,8 @@ func TestDBPath(t *testing.T) {
 	}
 }
 
+// A db_file setting overrides the default database location, and its parent
+// directories are created if missing.
 func TestDBPathCustomFile(t *testing.T) {
 	dir := t.TempDir()
 	dbFile := filepath.Join(dir, "nested", "myqueue.db")
@@ -252,6 +266,8 @@ watch "general" {
 	}
 }
 
+// A leading ~/ in db_file is expanded to the user's home directory at load
+// time.
 func TestDBFileExpandsHome(t *testing.T) {
 	path := writeConfig(t, `
 config {
@@ -277,6 +293,8 @@ watch "general" {
 	}
 }
 
+// WatchByName finds a watch by its block label and returns nil for names
+// that are not configured.
 func TestWatchByName(t *testing.T) {
 	svc := &Service{Watch: []Watch{{Name: "general"}, {Name: "animated"}}}
 
@@ -288,6 +306,7 @@ func TestWatchByName(t *testing.T) {
 	}
 }
 
+// A watch without an explicit output_dir inherits the config's output_dir.
 func TestWatchOutputDirDefaultsToConfigOutputDir(t *testing.T) {
 	path := writeConfig(t, `
 config {
@@ -311,6 +330,7 @@ watch "general" {
 	}
 }
 
+// A watch's explicit output_dir wins over the config's output_dir.
 func TestWatchOutputDirOverridesConfigOutputDir(t *testing.T) {
 	path := writeConfig(t, `
 config {
@@ -335,6 +355,8 @@ watch "general" {
 	}
 }
 
+// A leading ~/ in a watch's output_dir is expanded to the user's home
+// directory at load time.
 func TestWatchOutputDirExpandsHome(t *testing.T) {
 	path := writeConfig(t, `
 config {
