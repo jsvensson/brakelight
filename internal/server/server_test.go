@@ -114,6 +114,8 @@ func TestHistoryLogEndpoint(t *testing.T) {
 	}
 }
 
+// Job runtimes are rendered in the largest sensible unit (hours, minutes, or
+// seconds), and a job that never started shows "-".
 func TestFormatDuration(t *testing.T) {
 	start := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
 
@@ -139,6 +141,9 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
+// The history view shows the signed percentage change from source to output
+// size, paired with a CSS class that colors shrinkage and growth
+// differently. Jobs without recorded sizes render "-" with no class.
 func TestSizeChange(t *testing.T) {
 	jobWithSizes := func(source, output int) *db.Job {
 		return &db.Job{SourceSize: &source, OutputSize: &output}
@@ -165,6 +170,10 @@ func TestSizeChange(t *testing.T) {
 	}
 }
 
+// reencodeRisk counts completed jobs that would be re-queued if history were
+// cleared: the source file must still exist inside a watch directory while
+// its output file is gone. Jobs with an existing output, a missing source,
+// or a source outside all watch dirs are not at risk.
 func TestReencodeRisk(t *testing.T) {
 	watchDir := t.TempDir()
 	outDir := t.TempDir()
