@@ -115,10 +115,23 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 	partialPath := job.OutputPath + w.config.Config.PartialExtension
 
 	var preBuf logBuffer
+	var preFailures []string
+	failOnPreError := false
 	if watch := w.config.WatchByName(job.WatchName); watch != nil && len(watch.PreCommands) > 0 {
-		w.runPreCommands(ctx, job.ID, watch.PreCommands, job.OutputPath, &preBuf)
+		preFailures = w.runPreCommands(ctx, job.ID, watch.PreCommands, job.OutputPath, &preBuf)
+		failOnPreError = watch.FailOnPreCommandError
 	}
 	preLog := preBuf.String()
+
+	for _, failure := range preFailures {
+		if err := w.db.AppendJobCommandError(job.ID, failure+"\n"); err != nil {
+			log.Printf("Job %d: could not store pre-command failure: %v", job.ID, err)
+		}
+	}
+
+	if len(preFailures) > 0 && failOnPreError {
+		return w.db.SetJobFailed(job.ID, strings.Join(preFailures, "\n"), preLog)
+	}
 
 	log.Printf("Starting job %d: %s -> %s", job.ID, job.Filepath, partialPath)
 
@@ -154,10 +167,15 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 
 	if watch := w.config.WatchByName(job.WatchName); watch != nil && len(watch.PostCommands) > 0 {
 		var postBuf logBuffer
-		w.runPostCommands(ctx, job.ID, watch.PostCommands, job.OutputPath, &postBuf)
+		postFailures := w.runPostCommands(ctx, job.ID, watch.PostCommands, job.OutputPath, &postBuf)
 		if s := postBuf.String(); len(s) > 0 {
 			if err := w.db.AppendJobLog(job.ID, s); err != nil {
 				log.Printf("Job %d: could not store post-command output: %v", job.ID, err)
+			}
+		}
+		for _, failure := range postFailures {
+			if err := w.db.AppendJobCommandError(job.ID, failure+"\n"); err != nil {
+				log.Printf("Job %d: could not store post-command failure: %v", job.ID, err)
 			}
 		}
 	}
@@ -181,23 +199,24 @@ func substituteOutput(cmd, outputPath string) string {
 }
 
 // runPreCommands runs the pre-encoding commands of a watch block in order.
-// All output is appended to logBuf. Command failures are recorded in the log
-// and do not affect the job status.
-func (w *Worker) runPreCommands(ctx context.Context, jobID int64, cmds []string, outputPath string, logBuf *logBuffer) {
-	w.runCommands(ctx, jobID, cmds, outputPath, "pre-command", logBuf)
+// All output is appended to logBuf. It returns a description of each failed
+// command, in order.
+func (w *Worker) runPreCommands(ctx context.Context, jobID int64, cmds []string, outputPath string, logBuf *logBuffer) []string {
+	return w.runCommands(ctx, jobID, cmds, outputPath, "pre-command", logBuf)
 }
 
 // runPostCommands runs the post-encoding commands of a watch block in order.
-// All output is appended to logBuf. Command failures are recorded in the log
-// and do not affect the job status.
-func (w *Worker) runPostCommands(ctx context.Context, jobID int64, cmds []string, outputPath string, logBuf *logBuffer) {
-	w.runCommands(ctx, jobID, cmds, outputPath, "post-command", logBuf)
+// All output is appended to logBuf. It returns a description of each failed
+// command, in order.
+func (w *Worker) runPostCommands(ctx context.Context, jobID int64, cmds []string, outputPath string, logBuf *logBuffer) []string {
+	return w.runCommands(ctx, jobID, cmds, outputPath, "post-command", logBuf)
 }
 
 // runCommands runs the given commands in order with output placeholder
-// substitution. All output is appended to logBuf. Command failures are
-// recorded in the log and do not affect the job status.
-func (w *Worker) runCommands(ctx context.Context, jobID int64, cmds []string, outputPath, label string, logBuf *logBuffer) {
+// substitution. All output is appended to logBuf. It returns a description
+// of each failed command, in order.
+func (w *Worker) runCommands(ctx context.Context, jobID int64, cmds []string, outputPath, label string, logBuf *logBuffer) []string {
+	var failures []string
 	for _, cmd := range cmds {
 		cmd = substituteOutput(cmd, outputPath)
 		log.Printf("Job %d: running %s: %s", jobID, label, cmd)
@@ -216,8 +235,10 @@ func (w *Worker) runCommands(ctx context.Context, jobID int64, cmds []string, ou
 		if err != nil {
 			log.Printf("Job %d: %s failed: %s: %v", jobID, label, cmd, err)
 			logBuf.WriteString(fmt.Sprintf("%s failed: %v\n", label, err))
+			failures = append(failures, fmt.Sprintf("%s failed: %s: %v", label, cmd, err))
 		}
 	}
+	return failures
 }
 
 func (w *Worker) runHandBrake(ctx context.Context, input, output, preset string) (string, error) {
@@ -347,4 +368,3 @@ func fileSize(path string) (int64, error) {
 	}
 	return info.Size(), nil
 }
-

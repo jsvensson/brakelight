@@ -41,6 +41,7 @@
             --warn: #e0af68;
             --success-tint: rgba(158, 206, 106, 0.15);
             --error-tint: rgba(247, 118, 142, 0.15);
+            --warn-tint: rgba(224, 175, 104, 0.15);
             --secondary: #414868;
             --button-text: #16161e;
         }
@@ -61,6 +62,7 @@
                 --warn: #8c6c3e;
                 --success-tint: rgba(88, 117, 53, 0.15);
                 --error-tint: rgba(245, 42, 101, 0.12);
+                --warn-tint: rgba(140, 108, 62, 0.12);
                 --secondary: #a8aecb;
                 --button-text: #ffffff;
             }
@@ -147,6 +149,7 @@
         }
         .status-badge.active { background: var(--success-tint); color: var(--success); }
         .status-badge.inactive { background: var(--error-tint); color: var(--error); }
+        .status-badge.warn { background: var(--warn-tint); color: var(--warn); }
         .paused-banner {
             background: var(--error-tint);
             border: 1px solid var(--error);
@@ -187,6 +190,7 @@
             color: var(--log-text);
         }
         .error-message { color: var(--error); font-size: 0.85rem; margin-top: 0.25rem; }
+        .command-errors { color: var(--warn); font-size: 0.85rem; margin-top: 0.25rem; white-space: pre-wrap; }
         .size-down { color: var(--success); }
         .size-up { color: var(--error); }
         .reencode-warning { color: var(--warn); font-size: 0.85rem; }

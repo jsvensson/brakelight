@@ -93,6 +93,61 @@ func TestJobLogOutputRoundTrip(t *testing.T) {
 	}
 }
 
+func TestJobCommandErrorsRoundTrip(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	if _, err := d.CreateJob(NewJob{Filepath: "/media/movie.mkv", Preset: "preset", WatchName: "general", OutputPath: "/media/out/movie.mkv", Position: 1}); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	job, err := d.NextPendingJob()
+	if err != nil {
+		t.Fatalf("next pending job: %v", err)
+	}
+
+	// New jobs have no command errors.
+	if job.CommandErrors != nil {
+		t.Errorf("expected nil command errors on new job, got %q", *job.CommandErrors)
+	}
+
+	if err := d.SetJobCompleted(job.ID, "", nil); err != nil {
+		t.Fatalf("set job completed: %v", err)
+	}
+	if err := d.AppendJobCommandError(job.ID, "post-command failed: logger x: exit status 1\n"); err != nil {
+		t.Fatalf("append command error: %v", err)
+	}
+	if err := d.AppendJobCommandError(job.ID, "post-command failed: logger y: exit status 2\n"); err != nil {
+		t.Fatalf("append command error: %v", err)
+	}
+
+	history, err := d.ListRecentHistory(10)
+	if err != nil {
+		t.Fatalf("list history: %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("expected 1 history job, got %d", len(history))
+	}
+	want := "post-command failed: logger x: exit status 1\npost-command failed: logger y: exit status 2\n"
+	if history[0].CommandErrors == nil || *history[0].CommandErrors != want {
+		t.Errorf("expected command errors %q, got %v", want, history[0].CommandErrors)
+	}
+
+	// Retrying the job clears the command errors.
+	if err := d.ResetJobToPending(job.ID, 1); err != nil {
+		t.Fatalf("reset job to pending: %v", err)
+	}
+	job, err = d.NextPendingJob()
+	if err != nil {
+		t.Fatalf("next pending job: %v", err)
+	}
+	if job.CommandErrors != nil {
+		t.Errorf("expected command errors cleared on retry, got %q", *job.CommandErrors)
+	}
+}
+
 func TestServiceStateDefaultsToActive(t *testing.T) {
 	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

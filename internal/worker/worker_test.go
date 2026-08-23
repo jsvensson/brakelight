@@ -36,7 +36,11 @@ func TestRunPreCommands(t *testing.T) {
 
 	var buf logBuffer
 	w := &Worker{}
-	w.runPreCommands(context.Background(), 1, cmds, outputPath, &buf)
+	failures := w.runPreCommands(context.Background(), 1, cmds, outputPath, &buf)
+
+	if len(failures) > 0 {
+		t.Errorf("expected no failures, got %v", failures)
+	}
 
 	content, err := os.ReadFile(marker)
 	if err != nil {
@@ -57,10 +61,17 @@ func TestRunPreCommands(t *testing.T) {
 func TestRunPreCommandsFailureIsLogged(t *testing.T) {
 	var buf logBuffer
 	w := &Worker{}
-	w.runPreCommands(context.Background(), 1, []string{"exit 1"}, "/tmp/out.mkv", &buf)
+	failures := w.runPreCommands(context.Background(), 1, []string{"echo hi", "exit 1"}, "/tmp/out.mkv", &buf)
 
 	if !strings.Contains(buf.String(), "pre-command failed") {
 		t.Errorf("expected failure to be recorded in log:\n%s", buf.String())
+	}
+
+	if len(failures) != 1 {
+		t.Fatalf("expected 1 failure, got %d: %v", len(failures), failures)
+	}
+	if !strings.Contains(failures[0], "pre-command failed: exit 1") {
+		t.Errorf("expected failure to describe the command, got %q", failures[0])
 	}
 }
 
@@ -80,7 +91,11 @@ func TestRunPostCommands(t *testing.T) {
 
 	var buf logBuffer
 	w := &Worker{}
-	w.runPostCommands(context.Background(), 1, cmds, outputPath, &buf)
+	failures := w.runPostCommands(context.Background(), 1, cmds, outputPath, &buf)
+
+	if len(failures) > 0 {
+		t.Errorf("expected no failures, got %v", failures)
+	}
 
 	content, err := os.ReadFile(marker)
 	if err != nil {
@@ -101,9 +116,16 @@ func TestRunPostCommands(t *testing.T) {
 func TestRunPostCommandsFailureIsLogged(t *testing.T) {
 	var buf logBuffer
 	w := &Worker{}
-	w.runPostCommands(context.Background(), 1, []string{"exit 1"}, "/tmp/out.mkv", &buf)
+	failures := w.runPostCommands(context.Background(), 1, []string{"echo hi", "exit 1"}, "/tmp/out.mkv", &buf)
 
 	if !strings.Contains(buf.String(), "post-command failed") {
 		t.Errorf("expected failure to be recorded in log:\n%s", buf.String())
+	}
+
+	if len(failures) != 1 {
+		t.Fatalf("expected 1 failure, got %d: %v", len(failures), failures)
+	}
+	if !strings.Contains(failures[0], "post-command failed: exit 1") {
+		t.Errorf("expected failure to describe the command, got %q", failures[0])
 	}
 }

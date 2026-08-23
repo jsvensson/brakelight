@@ -101,6 +101,38 @@ watch "plain" {
 	}
 }
 
+func TestWatchFailOnPreCommandError(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+}
+
+watch "strict" {
+  path   = "/media/watch"
+  preset = "Standard"
+  fail_on_pre_command_error = true
+}
+
+watch "plain" {
+  path   = "/media/other"
+  preset = "Standard"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if !svc.Watch[0].FailOnPreCommandError {
+		t.Error("expected fail_on_pre_command_error to be true when set")
+	}
+	if svc.Watch[1].FailOnPreCommandError {
+		t.Error("expected fail_on_pre_command_error to default to false")
+	}
+}
+
 func TestWatchPresetDefaultsToConfigDefaultPreset(t *testing.T) {
 	path := writeConfig(t, `
 config {
