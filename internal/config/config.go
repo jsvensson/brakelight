@@ -10,12 +10,13 @@ import (
 
 // Watch maps a directory to a HandBrake preset.
 type Watch struct {
-	Name         string   `hcl:",label"`
-	Path         string   `hcl:"path"`
-	Preset       string   `hcl:"preset,optional"`
-	OutputDir    string   `hcl:"output_dir,optional"`
-	PreCommands  []string `hcl:"pre_commands,optional"`
-	PostCommands []string `hcl:"post_commands,optional"`
+	Name                  string   `hcl:",label"`
+	Path                  string   `hcl:"path"`
+	Preset                string   `hcl:"preset,optional"`
+	OutputDir             string   `hcl:"output_dir,optional"`
+	PreCommands           []string `hcl:"pre_commands,optional"`
+	PostCommands          []string `hcl:"post_commands,optional"`
+	FailOnPreCommandError bool     `hcl:"fail_on_pre_command_error,optional"`
 }
 
 // Config holds top-level service settings.

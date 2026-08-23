@@ -32,14 +32,20 @@ watch "Animated" {
   # Optional: shell commands run before each encode starts.
   # {output} is the full path, {output_path} is its directory,
   # {output_file} is its basename.
-  # Commands run with /bin/sh -c; failures are logged but do not
-  # affect the job status.
+  # Commands run with /bin/sh -c; failures are logged and shown in the
+  # UI, but do not affect the job status unless fail_on_pre_command_error
+  # is set.
   pre_commands = [
     "logger 'Starting: {output_file}'",
   ]
 
+  # Optional: fail the job (skip the encode) when a pre-command fails.
+  # Default: false.
+  # fail_on_pre_command_error = true
+
   # Optional: shell commands run after each encode completes.
-  # Uses the same placeholders as pre_commands.
+  # Uses the same placeholders as pre_commands. Failures are logged and
+  # shown in the UI, but do not affect the job status.
   post_commands = [
     "logger 'Encoded: {output_file}'",
   ]

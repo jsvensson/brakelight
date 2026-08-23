@@ -10,21 +10,22 @@ import (
 
 // Job represents a conversion job.
 type Job struct {
-	ID           int64
-	Filepath     string
-	Preset       string
-	WatchName    string
-	OutputPath   string
-	Status       string
-	Position     *int64
-	Attempts     int
-	CreatedAt    time.Time
-	StartedAt    *time.Time
-	CompletedAt  *time.Time
-	ErrorMessage *string
-	LogOutput    *string
-	SourceSize   *int
-	OutputSize   *int
+	ID            int64
+	Filepath      string
+	Preset        string
+	WatchName     string
+	OutputPath    string
+	Status        string
+	Position      *int64
+	Attempts      int
+	CreatedAt     time.Time
+	StartedAt     *time.Time
+	CompletedAt   *time.Time
+	ErrorMessage  *string
+	LogOutput     *string
+	CommandErrors *string
+	SourceSize    *int
+	OutputSize    *int
 }
 
 // DB wraps the SQLite connection.
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     completed_at TIMESTAMP,
     error_message TEXT,
     log_output TEXT,
+    command_errors TEXT,
     source_size INTEGER,
     output_size INTEGER
 );
@@ -122,6 +124,7 @@ CREATE TABLE IF NOT EXISTS service_state (
 
 	addColumns := []struct{ name, ddl string }{
 		{"watch_name", `ALTER TABLE jobs ADD COLUMN watch_name TEXT NOT NULL DEFAULT ''`},
+		{"command_errors", `ALTER TABLE jobs ADD COLUMN command_errors TEXT`},
 		{"source_size", `ALTER TABLE jobs ADD COLUMN source_size INTEGER`},
 		{"output_size", `ALTER TABLE jobs ADD COLUMN output_size INTEGER`},
 	}
@@ -205,7 +208,7 @@ func (db *DB) CreateJob(job NewJob) (int64, error) {
 // NextPendingJob returns the pending job with the lowest position.
 func (db *DB) NextPendingJob() (*Job, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, source_size, output_size
+		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
 		FROM jobs
 		WHERE status = 'pending'
 		ORDER BY position ASC, created_at ASC
@@ -248,6 +251,16 @@ func (db *DB) AppendJobLog(id int64, extra string) error {
 	return err
 }
 
+// AppendJobCommandError appends a pre/post-command failure description to a
+// job's stored command errors.
+func (db *DB) AppendJobCommandError(id int64, failure string) error {
+	_, err := db.conn.Exec(
+		`UPDATE jobs SET command_errors = COALESCE(command_errors, '') || ? WHERE id = ?`,
+		failure, id,
+	)
+	return err
+}
+
 // SetJobFailed marks a job as failed with an error message and log output.
 func (db *DB) SetJobFailed(id int64, errorMessage, logOutput string) error {
 	_, err := db.conn.Exec(
@@ -266,7 +279,7 @@ func (db *DB) IncrementAttempts(id int64) error {
 // ResetJobToPending returns a failed job to the pending queue at the end.
 func (db *DB) ResetJobToPending(id int64, position int64) error {
 	_, err := db.conn.Exec(
-		`UPDATE jobs SET status = 'pending', position = ?, attempts = attempts + 1, error_message = NULL, log_output = NULL, completed_at = NULL WHERE id = ?`,
+		`UPDATE jobs SET status = 'pending', position = ?, attempts = attempts + 1, error_message = NULL, log_output = NULL, command_errors = NULL, completed_at = NULL WHERE id = ?`,
 		position, id,
 	)
 	return err
@@ -275,7 +288,7 @@ func (db *DB) ResetJobToPending(id int64, position int64) error {
 // ListPendingJobs returns all pending jobs ordered by position.
 func (db *DB) ListPendingJobs() ([]*Job, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, source_size, output_size
+		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
 		FROM jobs
 		WHERE status = 'pending'
 		ORDER BY position ASC, created_at ASC
@@ -290,7 +303,7 @@ func (db *DB) ListPendingJobs() ([]*Job, error) {
 // ListProcessingJobs returns all currently processing jobs (should be 0 or 1).
 func (db *DB) ListProcessingJobs() ([]*Job, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, source_size, output_size
+		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
 		FROM jobs
 		WHERE status = 'processing'
 		ORDER BY started_at ASC
@@ -305,7 +318,7 @@ func (db *DB) ListProcessingJobs() ([]*Job, error) {
 // ListRecentHistory returns the most recent completed or failed jobs.
 func (db *DB) ListRecentHistory(limit int) ([]*Job, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, source_size, output_size
+		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
 		FROM jobs
 		WHERE status IN ('completed', 'failed')
 		ORDER BY completed_at DESC
@@ -321,7 +334,7 @@ func (db *DB) ListRecentHistory(limit int) ([]*Job, error) {
 // ListCompletedJobs returns all completed jobs, regardless of age.
 func (db *DB) ListCompletedJobs() ([]*Job, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, source_size, output_size
+		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
 		FROM jobs
 		WHERE status = 'completed'
 		ORDER BY completed_at DESC
@@ -499,11 +512,11 @@ func scanJob(row *sql.Row) (*Job, error) {
 	j := &Job{}
 	var pos, sourceSize, outputSize sql.NullInt64
 	var started, completed sql.NullTime
-	var errMsg, logOut sql.NullString
+	var errMsg, logOut, cmdErrs sql.NullString
 
 	err := row.Scan(
 		&j.ID, &j.Filepath, &j.Preset, &j.WatchName, &j.OutputPath, &j.Status, &pos,
-		&j.Attempts, &j.CreatedAt, &started, &completed, &errMsg, &logOut,
+		&j.Attempts, &j.CreatedAt, &started, &completed, &errMsg, &logOut, &cmdErrs,
 		&sourceSize, &outputSize,
 	)
 	if err == sql.ErrNoRows {
@@ -529,6 +542,9 @@ func scanJob(row *sql.Row) (*Job, error) {
 	if logOut.Valid {
 		j.LogOutput = &logOut.String
 	}
+	if cmdErrs.Valid {
+		j.CommandErrors = &cmdErrs.String
+	}
 	if sourceSize.Valid {
 		s := int(sourceSize.Int64)
 		j.SourceSize = &s
@@ -547,11 +563,11 @@ func scanJobs(rows *sql.Rows) ([]*Job, error) {
 		j := &Job{}
 		var pos, sourceSize, outputSize sql.NullInt64
 		var started, completed sql.NullTime
-		var errMsg, logOut sql.NullString
+		var errMsg, logOut, cmdErrs sql.NullString
 
 		if err := rows.Scan(
 			&j.ID, &j.Filepath, &j.Preset, &j.WatchName, &j.OutputPath, &j.Status, &pos,
-			&j.Attempts, &j.CreatedAt, &started, &completed, &errMsg, &logOut,
+			&j.Attempts, &j.CreatedAt, &started, &completed, &errMsg, &logOut, &cmdErrs,
 			&sourceSize, &outputSize,
 		); err != nil {
 			return nil, err
@@ -572,6 +588,9 @@ func scanJobs(rows *sql.Rows) ([]*Job, error) {
 		}
 		if logOut.Valid {
 			j.LogOutput = &logOut.String
+		}
+		if cmdErrs.Valid {
+			j.CommandErrors = &cmdErrs.String
 		}
 		if sourceSize.Valid {
 			s := int(sourceSize.Int64)

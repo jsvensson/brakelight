@@ -153,7 +153,7 @@
             {{ range .History }}
             <tr>
                 <td class="filename" title="{{ base .Filepath }}">{{ base .Filepath }}</td>
-                <td><span class="status {{ .Status }}">{{ .Status }}</span></td>
+                <td><span class="status {{ .Status }}">{{ .Status }}</span>{{ if .CommandErrors }} <span class="status-badge warn" title="Pre/post-command failed">⚠ commands</span>{{ end }}</td>
                 <td>{{ formatDuration .StartedAt .CompletedAt }}</td>
                 <td><span class="{{ sizeChangeClass . }}">{{ sizeChange . }}</span></td>
                 <td>{{ formatTime .CompletedAt }}</td>
@@ -176,6 +176,11 @@
             {{ if .ErrorMessage }}
             <tr>
                 <td colspan="6" class="error-message">{{ .ErrorMessage }}</td>
+            </tr>
+            {{ end }}
+            {{ if .CommandErrors }}
+            <tr>
+                <td colspan="6" class="command-errors">{{ .CommandErrors }}</td>
             </tr>
             {{ end }}
             {{ end }}
