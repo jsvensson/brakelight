@@ -6,7 +6,61 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jsvensson/brakelight/internal/config"
 )
+
+// The HandBrakeCLI arguments embed a sidecar SRT as an English default
+// subtitle track when one is given; without a sidecar, no SRT flags are
+// added.
+func TestHandbrakeArgs(t *testing.T) {
+	w := &Worker{config: &config.Service{Config: &config.Config{UserPresets: "/presets.json"}}}
+
+	args := w.handbrakeArgs("/in/a.mkv", "/out/a.mkv", "Standard", "")
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "--srt") {
+		t.Errorf("expected no srt flags without subtitle, got %v", args)
+	}
+
+	args = w.handbrakeArgs("/in/a.mkv", "/out/a.mkv", "Standard", "/in/a.srt")
+	joined = strings.Join(args, " ")
+	for _, want := range []string{"--srt-file /in/a.srt", "--srt-lang eng", "--srt-default"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected args to contain %q: %v", want, args)
+		}
+	}
+}
+
+// sidecarSubtitle finds an .srt file with the same base name adjacent to the
+// media file. It returns an empty string when no sidecar exists or only a
+// differently named .srt is present.
+func TestSidecarSubtitle(t *testing.T) {
+	dir := t.TempDir()
+	media := filepath.Join(dir, "a.mkv")
+	if err := os.WriteFile(media, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+
+	if got := sidecarSubtitle(media); len(got) > 0 {
+		t.Errorf("expected empty string without sidecar, got %q", got)
+	}
+
+	other := filepath.Join(dir, "b.srt")
+	if err := os.WriteFile(other, []byte("subs"), 0o644); err != nil {
+		t.Fatalf("write other srt: %v", err)
+	}
+	if got := sidecarSubtitle(media); len(got) > 0 {
+		t.Errorf("expected empty string for differently named srt, got %q", got)
+	}
+
+	srt := filepath.Join(dir, "a.srt")
+	if err := os.WriteFile(srt, []byte("subs"), 0o644); err != nil {
+		t.Fatalf("write srt: %v", err)
+	}
+	if got := sidecarSubtitle(media); got != srt {
+		t.Errorf("expected %q, got %q", srt, got)
+	}
+}
 
 // The {output}, {output_file}, and {output_path} placeholders in
 // pre/post commands are replaced with the full output path, its basename,
