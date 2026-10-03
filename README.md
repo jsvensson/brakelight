@@ -10,6 +10,7 @@
 - Reorder pending jobs via the web UI.
 - Retry failed jobs, or cancel pending ones.
 - Keeps job history and HandBrake output for debugging.
+- Embeds sidecar subtitles: if `a.srt` exists next to `a.mkv`, it is added to the output as an English subtitle track and marked as default.
 - Pause/resume the service from the UI; pausing stops new scans and conversions while letting the active encode finish. The state persists across restarts.
 
 ## Build

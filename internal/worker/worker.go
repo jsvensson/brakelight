@@ -135,10 +135,15 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 
 	log.Printf("Starting job %d: %s -> %s", job.ID, job.Filepath, partialPath)
 
+	subtitle := sidecarSubtitle(job.Filepath)
+	if len(subtitle) > 0 {
+		log.Printf("Job %d: embedding subtitle %s", job.ID, subtitle)
+	}
+
 	w.progress.Start(job.ID)
 	defer w.progress.Stop()
 
-	output, err := w.runHandBrake(ctx, job.Filepath, partialPath, job.Preset)
+	output, err := w.runHandBrake(ctx, job.Filepath, partialPath, job.Preset, subtitle)
 	output = preLog + output
 	if err != nil {
 		// Clean up partial file on failure.
@@ -241,10 +246,10 @@ func (w *Worker) runCommands(ctx context.Context, jobID int64, cmds []string, ou
 	return failures
 }
 
-func (w *Worker) runHandBrake(ctx context.Context, input, output, preset string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, encodeTimeout)
-	defer cancel()
-
+// handbrakeArgs builds the HandBrakeCLI arguments for a job. When subtitle
+// is non-empty, the sidecar SRT is embedded as an English subtitle track and
+// marked as default.
+func (w *Worker) handbrakeArgs(input, output, preset, subtitle string) []string {
 	args := []string{
 		"--preset-import-file", w.config.Config.UserPresets,
 		"--preset", preset,
@@ -253,6 +258,28 @@ func (w *Worker) runHandBrake(ctx context.Context, input, output, preset string)
 		"--all-audio",
 		"--all-subtitles",
 	}
+	if len(subtitle) > 0 {
+		args = append(args, "--srt-file", subtitle, "--srt-lang", "eng", "--srt-default")
+	}
+	return args
+}
+
+// sidecarSubtitle returns the path of the .srt file adjacent to the given
+// media file (same base name), or an empty string when none exists.
+func sidecarSubtitle(inputPath string) string {
+	ext := filepath.Ext(inputPath)
+	srt := strings.TrimSuffix(inputPath, ext) + ".srt"
+	if _, err := os.Stat(srt); err != nil {
+		return ""
+	}
+	return srt
+}
+
+func (w *Worker) runHandBrake(ctx context.Context, input, output, preset, subtitle string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, encodeTimeout)
+	defer cancel()
+
+	args := w.handbrakeArgs(input, output, preset, subtitle)
 
 	cmd := exec.CommandContext(ctx, w.handbrakePath, args...)
 
