@@ -264,6 +264,38 @@ func (w *Worker) handbrakeArgs(input, output, preset, subtitle string) []string 
 	return args
 }
 
+// commaSafeSubtitle works around HandBrakeCLI splitting --srt-file on
+// commas (https://github.com/HandBrake/HandBrake/issues/1100, closed as
+// not supported). Backslash-escaping the comma is undocumented and does
+// not work on Windows, so a comma-free path is used instead: when the
+// given path contains a comma, it is copied under a sanitized name in a
+// temp directory. The returned cleanup func removes the temp directory;
+// it is a no-op when the path has no comma.
+func commaSafeSubtitle(path string) (string, func(), error) {
+	if !strings.Contains(path, ",") {
+		return path, func() {}, nil
+	}
+
+	dir, err := os.MkdirTemp("", "brakelight-srt")
+	if err != nil {
+		return "", nil, fmt.Errorf("create temp dir: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("read subtitle: %w", err)
+	}
+	tmp := filepath.Join(dir, strings.ReplaceAll(filepath.Base(path), ",", "_"))
+	if err := os.WriteFile(tmp, content, 0o644); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("copy subtitle to temp file: %w", err)
+	}
+
+	return tmp, cleanup, nil
+}
+
 // sidecarSubtitle returns the path of the .srt file adjacent to the given
 // media file (same base name), or an empty string when none exists.
 func sidecarSubtitle(inputPath string) string {
@@ -278,6 +310,18 @@ func sidecarSubtitle(inputPath string) string {
 func (w *Worker) runHandBrake(ctx context.Context, input, output, preset, subtitle string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, encodeTimeout)
 	defer cancel()
+
+	if len(subtitle) > 0 {
+		safe, cleanup, err := commaSafeSubtitle(subtitle)
+		if err != nil {
+			return "", fmt.Errorf("prepare subtitle: %w", err)
+		}
+		defer cleanup()
+		if safe != subtitle {
+			log.Printf("Subtitle path %q contains a comma, using temp path %q", subtitle, safe)
+		}
+		subtitle = safe
+	}
 
 	args := w.handbrakeArgs(input, output, preset, subtitle)
 
