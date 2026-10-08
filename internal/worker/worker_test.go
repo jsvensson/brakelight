@@ -62,6 +62,53 @@ func TestSidecarSubtitle(t *testing.T) {
 	}
 }
 
+// commaSafeSubtitle passes comma-free paths through unchanged with a no-op
+// cleanup. A path containing a comma is replaced with a comma-free temp
+// path with the same contents; cleanup removes the temp directory.
+func TestCommaSafeSubtitle(t *testing.T) {
+	dir := t.TempDir()
+
+	plain := filepath.Join(dir, "plain.srt")
+	if err := os.WriteFile(plain, []byte("subs"), 0o644); err != nil {
+		t.Fatalf("write srt: %v", err)
+	}
+
+	got, cleanup, err := commaSafeSubtitle(plain)
+	if err != nil {
+		t.Fatalf("commaSafeSubtitle: %v", err)
+	}
+	if got != plain {
+		t.Errorf("expected unchanged path %q, got %q", plain, got)
+	}
+	cleanup()
+
+	srt := filepath.Join(dir, "Some Movie, Extended Cut.srt")
+	if err := os.WriteFile(srt, []byte("subs"), 0o644); err != nil {
+		t.Fatalf("write srt: %v", err)
+	}
+
+	got, cleanup, err = commaSafeSubtitle(srt)
+	if err != nil {
+		t.Fatalf("commaSafeSubtitle: %v", err)
+	}
+	if strings.Contains(got, ",") {
+		t.Errorf("expected comma-free path, got %q", got)
+	}
+	content, err := os.ReadFile(got)
+	if err != nil {
+		t.Fatalf("read temp srt: %v", err)
+	}
+	if string(content) != "subs" {
+		t.Errorf("expected temp srt contents %q, got %q", "subs", content)
+	}
+
+	tmpDir := filepath.Dir(got)
+	cleanup()
+	if _, err := os.Stat(tmpDir); !os.IsNotExist(err) {
+		t.Errorf("expected temp dir removed after cleanup, stat err: %v", err)
+	}
+}
+
 // The {output}, {output_file}, and {output_path} placeholders in
 // pre/post commands are replaced with the full output path, its basename,
 // and its directory. Commands without placeholders pass through unchanged.
