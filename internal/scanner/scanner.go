@@ -16,6 +16,9 @@ import (
 var mediaExtensions = map[string]bool{
 	".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".mov": true,
 	".ts": true, ".m2ts": true, ".mts": true,
+	".flv": true, ".wmv": true, ".asf": true, ".webm": true,
+	".mpg": true, ".mpeg": true, ".mpe": true, ".vob": true,
+	".3gp": true, ".3g2": true, ".ogv": true, ".ogm": true, ".divx": true,
 }
 
 // Scanner periodically scans watch directories for new media files.

@@ -5,6 +5,7 @@
 ## Features
 
 - Watches multiple directories, each mapped to a HandBrake preset.
+- Accepts HandBrake-readable containers: `.mkv`, `.mp4`, `.m4v`, `.avi`, `.mov`, `.ts`, `.m2ts`, `.mts`, `.flv`, `.wmv`, `.asf`, `.webm`, `.mpg`, `.mpeg`, `.mpe`, `.vob`, `.3gp`, `.3g2`, `.ogv`, `.ogm`, `.divx`.
 - Persists queue state in SQLite.
 - Processes one job at a time.
 - Reorder pending jobs via the web UI.
