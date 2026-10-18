@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/jsvensson/brakelight/internal/config"
 	"github.com/jsvensson/brakelight/internal/db"
@@ -39,9 +40,9 @@ func New(database *db.DB, cfg *config.Service, handbrakePath string) *Worker {
 // Run starts the worker loop. It returns when ctx is cancelled.
 func (w *Worker) Run(ctx context.Context) {
 	if n, err := w.db.RecoverProcessingJobs(); err != nil {
-		log.Printf("Worker error recovering interrupted jobs: %v", err)
+		log.Error("Failed to recover interrupted jobs", "err", err)
 	} else if n > 0 {
-		log.Printf("Recovered %d interrupted job(s) to pending queue", n)
+		log.Info("Recovered interrupted jobs to pending queue", "count", n)
 	}
 
 	pausedLogged := false
@@ -54,14 +55,14 @@ func (w *Worker) Run(ctx context.Context) {
 
 		active, err := w.db.IsEncodingActive()
 		if err != nil {
-			log.Printf("Worker error reading active state: %v", err)
+			log.Error("Worker error reading active state", "err", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
 
 		if !active {
 			if !pausedLogged {
-				log.Println("Worker paused: encoding is inactive")
+				log.Info("Worker paused: encoding is inactive")
 				pausedLogged = true
 			}
 			time.Sleep(5 * time.Second)
@@ -71,7 +72,7 @@ func (w *Worker) Run(ctx context.Context) {
 
 		job, err := w.db.NextPendingJob()
 		if err != nil {
-			log.Printf("Worker error fetching job: %v", err)
+			log.Error("Worker error fetching job", "err", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -81,7 +82,7 @@ func (w *Worker) Run(ctx context.Context) {
 		}
 
 		if err := w.processJob(ctx, job); err != nil {
-			log.Printf("Job %d failed: %v", job.ID, err)
+			log.Error("Job failed", "id", job.ID, "err", err)
 		}
 	}
 }
@@ -98,7 +99,7 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 
 	// Ensure stability before encoding.
 	if err := waitStable(job.Filepath, 5*time.Second); err != nil {
-		log.Printf("Job %d source not stable, will retry: %v", job.ID, err)
+		log.Warn("Source file not stable, will retry", "id", job.ID, "err", err)
 		return w.retryOrFail(job, "source file not stable", "")
 	}
 
@@ -107,9 +108,9 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 	}
 
 	if size, err := fileSize(job.Filepath); err != nil {
-		log.Printf("Job %d: could not stat source file size: %v", job.ID, err)
+		log.Warn("Could not stat source file size", "id", job.ID, "err", err)
 	} else if err := w.db.SetJobSourceSize(job.ID, int(size)); err != nil {
-		log.Printf("Job %d: could not store source file size: %v", job.ID, err)
+		log.Warn("Could not store source file size", "id", job.ID, "err", err)
 	}
 
 	partialPath := job.OutputPath + w.config.Config.PartialExtension
@@ -125,7 +126,7 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 
 	for _, failure := range preFailures {
 		if err := w.db.AppendJobCommandError(job.ID, failure+"\n"); err != nil {
-			log.Printf("Job %d: could not store pre-command failure: %v", job.ID, err)
+			log.Warn("Could not store pre-command failure", "id", job.ID, "err", err)
 		}
 	}
 
@@ -133,11 +134,11 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 		return w.db.SetJobFailed(job.ID, strings.Join(preFailures, "\n"), preLog)
 	}
 
-	log.Printf("Starting job %d: %s -> %s", job.ID, job.Filepath, partialPath)
+	log.Info("Starting job", "id", job.ID, "source", job.Filepath, "target", partialPath)
 
 	subtitle := sidecarSubtitle(job.Filepath)
 	if len(subtitle) > 0 {
-		log.Printf("Job %d: embedding subtitle %s", job.ID, subtitle)
+		log.Info("Embedding subtitle", "id", job.ID, "subtitle", subtitle)
 	}
 
 	w.progress.Start(job.ID)
@@ -158,7 +159,7 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 
 	var outputSize *int
 	if size, err := fileSize(job.OutputPath); err != nil {
-		log.Printf("Job %d: could not stat output file size: %v", job.ID, err)
+		log.Warn("Could not stat output file size", "id", job.ID, "err", err)
 	} else {
 		s := int(size)
 		outputSize = &s
@@ -168,19 +169,19 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 		return fmt.Errorf("mark completed: %w", err)
 	}
 
-	log.Printf("Completed job %d: %s", job.ID, job.OutputPath)
+	log.Info("Completed job", "id", job.ID, "output", job.OutputPath)
 
 	if watch := w.config.WatchByName(job.WatchName); watch != nil && len(watch.PostCommands) > 0 {
 		var postBuf logBuffer
 		postFailures := w.runPostCommands(ctx, job.ID, watch.PostCommands, job.OutputPath, &postBuf)
 		if s := postBuf.String(); len(s) > 0 {
 			if err := w.db.AppendJobLog(job.ID, s); err != nil {
-				log.Printf("Job %d: could not store post-command output: %v", job.ID, err)
+				log.Warn("Could not store post-command output", "id", job.ID, "err", err)
 			}
 		}
 		for _, failure := range postFailures {
 			if err := w.db.AppendJobCommandError(job.ID, failure+"\n"); err != nil {
-				log.Printf("Job %d: could not store post-command failure: %v", job.ID, err)
+				log.Warn("Could not store post-command failure", "id", job.ID, "err", err)
 			}
 		}
 	}
@@ -224,7 +225,7 @@ func (w *Worker) runCommands(ctx context.Context, jobID int64, cmds []string, ou
 	var failures []string
 	for _, cmd := range cmds {
 		cmd = substituteOutput(cmd, outputPath)
-		log.Printf("Job %d: running %s: %s", jobID, label, cmd)
+		log.Info("Running command", "id", jobID, "phase", label, "cmd", cmd)
 		logBuf.WriteString("$ " + cmd + "\n")
 
 		cctx, cancel := context.WithTimeout(ctx, commandTimeout)
@@ -238,7 +239,7 @@ func (w *Worker) runCommands(ctx context.Context, jobID int64, cmds []string, ou
 			}
 		}
 		if err != nil {
-			log.Printf("Job %d: %s failed: %s: %v", jobID, label, cmd, err)
+			log.Error("Command failed", "id", jobID, "phase", label, "cmd", cmd, "err", err)
 			logBuf.WriteString(fmt.Sprintf("%s failed: %v\n", label, err))
 			failures = append(failures, fmt.Sprintf("%s failed: %s: %v", label, cmd, err))
 		}
@@ -318,7 +319,7 @@ func (w *Worker) runHandBrake(ctx context.Context, input, output, preset, subtit
 		}
 		defer cleanup()
 		if safe != subtitle {
-			log.Printf("Subtitle path %q contains a comma, using temp path %q", subtitle, safe)
+			log.Warn("Subtitle path contains a comma, using temp path", "subtitle", subtitle, "temp", safe)
 		}
 		subtitle = safe
 	}
@@ -391,11 +392,11 @@ func (b *logBuffer) String() string {
 
 func (w *Worker) retryOrFail(job *db.Job, message, logOutput string) error {
 	if err := w.db.IncrementAttempts(job.ID); err != nil {
-		log.Printf("Failed to increment attempts for job %d: %v", job.ID, err)
+		log.Error("Failed to increment attempts", "id", job.ID, "err", err)
 	}
 
 	if job.Attempts+1 < w.config.Config.MaxAttempts {
-		log.Printf("Retrying job %d (attempt %d/%d)", job.ID, job.Attempts+1, w.config.Config.MaxAttempts)
+		log.Info("Retrying job", "id", job.ID, "attempt", job.Attempts+1, "max", w.config.Config.MaxAttempts)
 		pos, err := w.db.NextPosition()
 		if err != nil {
 			return w.db.SetJobFailed(job.ID, message, logOutput)

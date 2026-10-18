@@ -3,11 +3,12 @@ package scanner
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/jsvensson/brakelight/internal/config"
 	"github.com/jsvensson/brakelight/internal/db"
@@ -38,7 +39,7 @@ func New(database *db.DB, cfg *config.Service) *Scanner {
 func (s *Scanner) Run(ctx context.Context) {
 	interval, err := time.ParseDuration(s.config.Config.ScanInterval)
 	if err != nil {
-		log.Printf("Invalid scan_interval %q, using default: %v", s.config.Config.ScanInterval, err)
+		log.Warn("Invalid scan_interval, using default", "value", s.config.Config.ScanInterval, "default", "30s", "err", err)
 		interval = 30 * time.Second
 	}
 
@@ -60,12 +61,12 @@ func (s *Scanner) Run(ctx context.Context) {
 func (s *Scanner) scan() {
 	active, err := s.db.IsScanningActive()
 	if err != nil {
-		log.Printf("Scanner error reading active state: %v", err)
+		log.Error("Scanner error reading active state", "err", err)
 		return
 	}
 	if !active {
 		if !s.pausedLogged {
-			log.Println("Scanner paused: file scanning is inactive")
+			log.Info("Scanner paused: file scanning is inactive")
 			s.pausedLogged = true
 		}
 		return
@@ -75,7 +76,7 @@ func (s *Scanner) scan() {
 	current := make(map[string]int64)
 	for _, watch := range s.config.Watch {
 		if err := s.scanDir(watch, current); err != nil {
-			log.Printf("Scanner error for %s: %v", watch.Path, err)
+			log.Error("Scanner error", "path", watch.Path, "err", err)
 		}
 	}
 	s.seen = current
@@ -87,33 +88,33 @@ func (s *Scanner) scan() {
 func (s *Scanner) pruneStaleJobs() {
 	jobs, err := s.db.ListPendingJobs()
 	if err != nil {
-		log.Printf("Scanner error listing pending jobs: %v", err)
+		log.Error("Scanner error listing pending jobs", "err", err)
 		return
 	}
 
 	for _, job := range jobs {
 		if _, err := os.Stat(job.Filepath); os.IsNotExist(err) {
 			if err := s.db.CancelJob(job.ID); err != nil {
-				log.Printf("Failed to remove stale job %d (%s): %v", job.ID, job.Filepath, err)
+				log.Error("Failed to remove stale job", "id", job.ID, "path", job.Filepath, "err", err)
 				continue
 			}
-			log.Printf("Removed stale job %d: %s", job.ID, job.Filepath)
+			log.Info("Removed stale job", "id", job.ID, "path", job.Filepath)
 		}
 	}
 
 	processing, err := s.db.ListProcessingJobs()
 	if err != nil {
-		log.Printf("Scanner error listing processing jobs: %v", err)
+		log.Error("Scanner error listing processing jobs", "err", err)
 		return
 	}
 
 	for _, job := range processing {
 		if _, err := os.Stat(job.Filepath); os.IsNotExist(err) {
 			if err := s.db.SetJobFailed(job.ID, "source file no longer exists", ""); err != nil {
-				log.Printf("Failed to fail stale job %d (%s): %v", job.ID, job.Filepath, err)
+				log.Error("Failed to fail stale job", "id", job.ID, "path", job.Filepath, "err", err)
 				continue
 			}
-			log.Printf("Failed stale processing job %d: %s", job.ID, job.Filepath)
+			log.Info("Failed stale processing job", "id", job.ID, "path", job.Filepath)
 		}
 	}
 }
@@ -122,13 +123,13 @@ func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
 	info, err := os.Stat(watch.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("Watch directory does not exist, skipping: %s", watch.Path)
+			log.Warn("Watch directory does not exist, skipping", "path", watch.Path)
 			return nil
 		}
 		return err
 	}
 	if !info.IsDir() {
-		log.Printf("Watch path is not a directory, skipping: %s", watch.Path)
+		log.Warn("Watch path is not a directory, skipping", "path", watch.Path)
 		return nil
 	}
 
@@ -152,7 +153,7 @@ func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
 
 		size, err := fileSize(path)
 		if err != nil {
-			log.Printf("Failed to stat %s: %v", path, err)
+			log.Warn("Failed to stat file", "path", path, "err", err)
 			continue
 		}
 		current[path] = size
@@ -164,7 +165,7 @@ func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
 		}
 
 		if err := s.queueFile(path, watch); err != nil {
-			log.Printf("Failed to queue %s: %v", path, err)
+			log.Error("Failed to queue file", "path", path, "err", err)
 		}
 	}
 
@@ -202,7 +203,7 @@ func (s *Scanner) queueFile(path string, watch config.Watch) error {
 		return err
 	}
 	if id > 0 {
-		log.Printf("Queued job %d: %s [%s]", id, path, watch.Preset)
+		log.Info("Queued job", "id", id, "path", path, "preset", watch.Preset)
 	}
 
 	return nil

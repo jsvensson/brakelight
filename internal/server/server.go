@@ -7,13 +7,14 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/jsvensson/brakelight/internal/config"
 	"github.com/jsvensson/brakelight/internal/db"
@@ -60,7 +61,7 @@ func New(database *db.DB, cfg *config.Service, progress *worker.Progress) *Serve
 
 // Start runs the HTTP server.
 func (s *Server) Start() error {
-	log.Printf("HTTP server listening on %s", s.srv.Addr)
+	log.Info("HTTP server listening", "addr", s.srv.Addr)
 	return s.srv.ListenAndServe()
 }
 
@@ -83,7 +84,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	data := s.dashboardData()
 	if err := tmpl.Execute(w, data); err != nil {
-		log.Printf("Template error: %v", err)
+		log.Error("Template error", "err", err)
 	}
 }
 
@@ -108,7 +109,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		var buf strings.Builder
 		pending, _ := s.db.ListPendingJobs()
 		if err := renderProgressFragment(&buf, progressView{Snapshot: s.progress.Snapshot(), Pending: len(pending)}); err != nil {
-			log.Printf("Progress fragment error: %v", err)
+			log.Error("Progress fragment error", "err", err)
 			return false
 		}
 		fmt.Fprint(w, "event: progress\n")
@@ -314,7 +315,7 @@ func (s *Server) handleToggleService(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 
-	log.Printf("%s toggled %s", name, map[bool]string{true: "active", false: "inactive"}[!active])
+	log.Info("Service toggled", "service", name, "state", map[bool]string{true: "active", false: "inactive"}[!active])
 	s.handleQueueFragment(w, r)
 }
 
@@ -378,7 +379,7 @@ func renderTemplate(w http.ResponseWriter, name string, data interface{}) {
 	}
 
 	if err := tmpl.ExecuteTemplate(w, filepath.Base(name), data); err != nil {
-		log.Printf("Template error: %v", err)
+		log.Error("Template error", "err", err)
 	}
 }
 
