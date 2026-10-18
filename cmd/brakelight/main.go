@@ -4,10 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/jsvensson/brakelight/internal/config"
 	"github.com/jsvensson/brakelight/internal/db"
@@ -28,7 +29,7 @@ func main() {
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatal("Failed to load config", "err", err)
 	}
 
 	outputDirs := map[string]bool{}
@@ -37,27 +38,27 @@ func main() {
 	}
 	for dir := range outputDirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			log.Fatalf("Failed to create output dir %s: %v", dir, err)
+			log.Fatal("Failed to create output dir", "dir", dir, "err", err)
 		}
 	}
 
 	dbPath, err := cfg.Config.DBPath()
 	if err != nil {
-		log.Fatalf("Failed to resolve database path: %v", err)
+		log.Fatal("Failed to resolve database path", "err", err)
 	}
 
 	database, err := db.Open(dbPath)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		log.Fatal("Failed to open database", "err", err)
 	}
 	defer database.Close()
 
 	handbrakePath, err := findHandBrakeCLI(cfg.Config.HandBrakeCLI)
 	if err != nil {
-		log.Fatalf("Failed to locate HandBrakeCLI: %v", err)
+		log.Fatal("Failed to locate HandBrakeCLI", "err", err)
 	}
 
-	log.Printf("Using HandBrakeCLI: %s", handbrakePath)
+	log.Info("Using HandBrakeCLI", "path", handbrakePath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -71,7 +72,7 @@ func main() {
 
 	go func() {
 		if err := srv.Start(); err != nil {
-			log.Fatalf("HTTP server error: %v", err)
+			log.Fatal("HTTP server error", "err", err)
 		}
 	}()
 
@@ -79,11 +80,11 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 
-	log.Println("Shutting down...")
+	log.Info("Shutting down")
 	cancel()
 
 	if err := srv.Stop(ctx); err != nil {
-		log.Printf("HTTP server shutdown error: %v", err)
+		log.Error("HTTP server shutdown error", "err", err)
 	}
 }
 
