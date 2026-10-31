@@ -227,13 +227,26 @@ func (db *DB) CreateJob(job NewJob) (int64, error) {
 	return id, nil
 }
 
+// HasJobForFilepath reports whether any job row exists for the filepath,
+// regardless of status. It lets the scanner skip already-queued files before
+// doing any expensive work (like probing) for them.
+func (db *DB) HasJobForFilepath(filepath string) (bool, error) {
+	var exists int
+	err := db.conn.QueryRow(`SELECT EXISTS(SELECT 1 FROM jobs WHERE filepath = ?)`, filepath).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists == 1, nil
+}
+
 // NextPendingJob returns the pending job with the lowest position. Jobs from
-// review watches are skipped until an audio track selection has been made.
+// review watches are skipped until a non-empty audio track selection has been
+// made.
 func (db *DB) NextPendingJob() (*Job, error) {
 	row := db.conn.QueryRow(`
 		SELECT ` + jobColumns + `
 		FROM jobs
-		WHERE status = 'pending' AND (review = 0 OR audio_selection IS NOT NULL)
+		WHERE status = 'pending' AND (review = 0 OR (audio_selection IS NOT NULL AND audio_selection != ''))
 		ORDER BY position ASC, created_at ASC
 		LIMIT 1
 	`)

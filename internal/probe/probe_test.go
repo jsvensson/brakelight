@@ -96,6 +96,24 @@ func TestOriginalLanguageFromFormatTag(t *testing.T) {
 	}
 }
 
+// OriginalLanguage only considers audio streams: a subtitle flagged
+// "original" must not drive the original-language detection.
+func TestOriginalLanguageIgnoresSubtitles(t *testing.T) {
+	f, err := Parse([]byte(`{
+		"streams": [
+			{"index": 1, "codec_type": "audio", "tags": {"language": "jpn"}, "disposition": {"default": 1}},
+			{"index": 2, "codec_type": "subtitle", "tags": {"language": "eng"}, "disposition": {"original": 1}}
+		],
+		"format": {"tags": {}}
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := f.OriginalLanguage(); got != "" {
+		t.Errorf("expected empty (subtitle original flag must be ignored), got %q", got)
+	}
+}
+
 // OriginalLanguage is empty when neither a disposition nor a tag exists.
 func TestOriginalLanguageUnknown(t *testing.T) {
 	f, err := Parse([]byte(`{
@@ -115,11 +133,12 @@ func TestOriginalLanguageUnknown(t *testing.T) {
 	}
 }
 
-// NormalizeLanguage maps ISO 639-1 to 639-2 and lowercases; unknown and
-// already-639-2 codes pass through.
+// NormalizeLanguage maps ISO 639-1 to 639-2, lowercases, and strips region
+// subtags ("pt-BR" -> "por"); unknown and already-639-2 codes pass through.
 func TestNormalizeLanguage(t *testing.T) {
 	cases := map[string]string{
-		"en": "eng", "EN": "eng", "it": "ita", "eng": "eng", "und": "und", "": "", "pt-BR": "pt-br",
+		"en": "eng", "EN": "eng", "it": "ita", "eng": "eng", "und": "und", "": "",
+		"pt-BR": "por", "pt_br": "por", "zh-Hant": "zho", "pt-PT": "por", "x-custom": "x-custom",
 	}
 	for in, want := range cases {
 		if got := NormalizeLanguage(in); got != want {
@@ -157,6 +176,63 @@ func TestResolveOriginalIncludesUnd(t *testing.T) {
 	nums, ok := Resolve("original", f, "audio")
 	if !ok || !reflect.DeepEqual(nums, []int{1, 2}) {
 		t.Errorf("expected [1 2] ok, got %v ok=%v", nums, ok)
+	}
+}
+
+// Resolve "original" drops commentary tracks, including the usual untagged
+// (und) commentary layout and commentary tracks carrying a language tag.
+func TestResolveOriginalExcludesCommentary(t *testing.T) {
+	f, err := Parse([]byte(`{
+		"streams": [
+			{"index": 1, "codec_type": "audio", "tags": {"language": "eng"}, "disposition": {"original": 1}},
+			{"index": 2, "codec_type": "audio", "tags": {}, "disposition": {"comment": 1}},
+			{"index": 3, "codec_type": "audio", "tags": {"language": "eng"}, "disposition": {"comment": 1}},
+			{"index": 4, "codec_type": "audio", "tags": {"language": "ita"}, "disposition": {"dub": 1}}
+		],
+		"format": {"tags": {}}
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	nums, ok := Resolve("original", f, "audio")
+	if !ok || !reflect.DeepEqual(nums, []int{1}) {
+		t.Errorf("expected [1] ok, got %v ok=%v", nums, ok)
+	}
+}
+
+// A region-qualified tag matches its base-language rule: lang:pt resolves
+// pt-BR tracks.
+func TestResolveLangRegionQualified(t *testing.T) {
+	f, err := Parse([]byte(`{
+		"streams": [
+			{"index": 1, "codec_type": "audio", "tags": {"language": "pt-BR"}, "disposition": {}},
+			{"index": 2, "codec_type": "audio", "tags": {"language": "en"}, "disposition": {}}
+		],
+		"format": {"tags": {}}
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	nums, ok := Resolve("lang:pt", f, "audio")
+	if !ok || !reflect.DeepEqual(nums, []int{1}) {
+		t.Errorf("expected [1] ok, got %v ok=%v", nums, ok)
+	}
+}
+
+// ValidRule accepts the known rule forms and rejects empty, unknown, or
+// malformed rules.
+func TestValidRule(t *testing.T) {
+	valid := []string{"all", "none", "original", "lang:eng", "lang:eng,ita", "tracks:1", "tracks:1,2,3"}
+	for _, rule := range valid {
+		if !ValidRule(rule) {
+			t.Errorf("ValidRule(%q) = false, want true", rule)
+		}
+	}
+	invalid := []string{"", "bogus", "lang:", "lang:eng,", "tracks:", "tracks:a", "tracks:1,", "ALL", " original"}
+	for _, rule := range invalid {
+		if ValidRule(rule) {
+			t.Errorf("ValidRule(%q) = true, want false", rule)
+		}
 	}
 }
 

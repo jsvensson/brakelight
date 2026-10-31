@@ -628,3 +628,63 @@ func TestNextPendingJobIncludesNonReviewJobs(t *testing.T) {
 		t.Errorf("expected job %d to be next pending, got %v err=%v", id, next, err)
 	}
 }
+
+// HasJobForFilepath reports whether any job row exists for a filepath,
+// regardless of status.
+func TestHasJobForFilepath(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	exists, err := d.HasJobForFilepath("/media/a.mkv")
+	if err != nil {
+		t.Fatalf("has job: %v", err)
+	}
+	if exists {
+		t.Error("expected no job row for unknown filepath")
+	}
+
+	pos, _ := d.NextPosition()
+	id, err := d.CreateJob(NewJob{Filepath: "/media/a.mkv", Preset: "P", WatchName: "w", OutputPath: "/out/a.mkv", Position: pos})
+	if err != nil || id == 0 {
+		t.Fatalf("create job: id=%d err=%v", id, err)
+	}
+	exists, err = d.HasJobForFilepath("/media/a.mkv")
+	if err != nil || !exists {
+		t.Errorf("expected job row to exist, got exists=%v err=%v", exists, err)
+	}
+
+	// The row still counts after the job leaves the pending state.
+	if err := d.SetJobCompleted(id, "", nil); err != nil {
+		t.Fatalf("complete job: %v", err)
+	}
+	exists, err = d.HasJobForFilepath("/media/a.mkv")
+	if err != nil || !exists {
+		t.Errorf("expected completed job row to still count, got exists=%v err=%v", exists, err)
+	}
+}
+
+// An empty audio_selection string does not release a review job for
+// encoding; only a non-empty selection makes it eligible.
+func TestNextPendingJobSkipsEmptySelection(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	pos, _ := d.NextPosition()
+	id, err := d.CreateJob(NewJob{Filepath: "/media/review/ep01.mkv", Preset: "P", WatchName: "review", OutputPath: "/out/ep01.mkv", Position: pos, Review: true})
+	if err != nil || id == 0 {
+		t.Fatalf("create job: id=%d err=%v", id, err)
+	}
+
+	if err := d.SetJobTrackSelection(id, "", "all"); err != nil {
+		t.Fatalf("set selection: %v", err)
+	}
+	if job, err := d.NextPendingJob(); err != nil || job != nil {
+		t.Errorf("expected empty selection to keep the job ineligible, got %v err=%v", job, err)
+	}
+}

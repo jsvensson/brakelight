@@ -372,6 +372,31 @@ func TestTracksSaveEndpoint(t *testing.T) {
 	if job.SubtitleSelection == nil || *job.SubtitleSelection != "tracks:1,2" {
 		t.Errorf("expected subtitle_selection=tracks:1,2, got %v", job.SubtitleSelection)
 	}
+
+	// A missing/empty rule is rejected and must not be stored: an empty
+	// selection would release the job while the worker treats "" as "all".
+	id3 := newReviewJob(t, d, "/media/review/ep03.mkv")
+	form = "subtitle=all"
+	req = httptest.NewRequest("POST", fmt.Sprintf("/queue/%d/tracks", id3), strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty audio rule, got %d", rec.Code)
+	}
+	job, _ = d.GetJob(id3)
+	if job.AudioSelection != nil {
+		t.Errorf("expected no stored selection after rejected save, got %v", *job.AudioSelection)
+	}
+
+	form = "audio=bogus&subtitle=all"
+	req = httptest.NewRequest("POST", fmt.Sprintf("/queue/%d/tracks", id3), strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for unknown rule, got %d", rec.Code)
+	}
 }
 
 // The bulk endpoint applies one rule to all checked review jobs at once and
@@ -418,6 +443,15 @@ func TestBulkTracksEndpoint(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "tracks set") {
 		t.Errorf("expected queue fragment to show 'tracks set' badge:\n%s", rec.Body.String())
 	}
+
+	// An empty bulk rule is rejected instead of silently defaulting to "all".
+	req = httptest.NewRequest("POST", "/queue/bulk-tracks", strings.NewReader(fmt.Sprintf("ids=%d&bulk_audio=&bulk_subtitles=none", id1)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty bulk rule, got %d", rec.Code)
+	}
 }
 
 // Review rows carry a row-level class so their state is visible at a glance:
@@ -450,5 +484,10 @@ func TestQueueFragmentReviewRowClasses(t *testing.T) {
 	}
 	if awaitingID == setID {
 		t.Fatal("test setup: expected distinct job ids")
+	}
+	// Only rows still awaiting review get a bulk checkbox; rows with a saved
+	// selection are excluded so a bulk apply cannot overwrite them.
+	if n := strings.Count(body, `name="ids"`); n != 1 {
+		t.Errorf("expected exactly 1 bulk checkbox (awaiting row only), got %d:\n%s", n, body)
 	}
 }

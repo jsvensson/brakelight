@@ -311,6 +311,12 @@ func (s *Server) handleTracksSave(w http.ResponseWriter, r *http.Request) {
 
 	audio := ruleFromForm(r.Form, "audio", "audio_tracks")
 	subtitles := ruleFromForm(r.Form, "subtitle", "subtitle_tracks")
+	// An empty or malformed rule must not be stored: it would release the
+	// job for encoding while resolveSelection treats "" as "keep all".
+	if !probe.ValidRule(audio) || !probe.ValidRule(subtitles) {
+		http.Error(w, "invalid track selection", http.StatusBadRequest)
+		return
+	}
 	if err := s.db.SetJobTrackSelection(id, audio, subtitles); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -330,11 +336,9 @@ func (s *Server) handleBulkTracks(w http.ResponseWriter, r *http.Request) {
 
 	audio := r.FormValue("bulk_audio")
 	subtitles := r.FormValue("bulk_subtitles")
-	if len(audio) == 0 {
-		audio = "all"
-	}
-	if len(subtitles) == 0 {
-		subtitles = "all"
+	if !probe.ValidRule(audio) || !probe.ValidRule(subtitles) {
+		http.Error(w, "invalid track selection", http.StatusBadRequest)
+		return
 	}
 
 	applied := 0

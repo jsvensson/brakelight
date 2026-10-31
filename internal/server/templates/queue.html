@@ -119,7 +119,7 @@
             {{ range $i, $job := .Pending }}
             <tr data-file="{{ base $job.Filepath }}"{{ if $job.Review }} class="{{ if $job.AudioSelection }}review-set{{ else }}review-awaiting{{ end }}"{{ end }}>
                 <td>{{ add $i 1 }}</td>
-                <td>{{ if $job.Review }}<input type="checkbox" form="bulk-form" name="ids" value="{{ $job.ID }}">{{ end }}</td>
+                <td>{{ if and $job.Review (not $job.AudioSelection) }}<input type="checkbox" form="bulk-form" name="ids" value="{{ $job.ID }}">{{ end }}</td>
                 <td class="filename" title="{{ base $job.Filepath }}">{{ base $job.Filepath }}
                     {{ if $job.Review }}{{ if $job.AudioSelection }}<span class="status-badge active" title="Audio: {{ $job.AudioSelection }}, subtitles: {{ $job.SubtitleSelection }}">tracks set</span>{{ else }}<span class="status-badge warn">needs review</span>{{ end }}{{ end }}
                 </td>
@@ -143,7 +143,7 @@
                     <button class="secondary"
                         hx-get="/queue/{{ $job.ID }}/tracks"
                         hx-target="#tracks-modal-content"
-                        hx-on:htmx:after-request="document.getElementById('tracks-modal').hidden = false">Tracks</button>
+                        hx-on:htmx:after-request="if (event.detail.successful) document.getElementById('tracks-modal').hidden = false">Tracks</button>
                     {{ end }}
                     <button class="danger"
                         hx-post="/queue/{{ $job.ID }}/cancel"

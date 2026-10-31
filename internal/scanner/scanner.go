@@ -30,8 +30,9 @@ type Scanner struct {
 	pausedLogged bool
 	seen         map[string]int64
 	// prober returns the JSON track listing for a media file. It is a field
-	// so tests can substitute a fake.
-	prober func(path string) (string, error)
+	// so tests can substitute a fake. The scan context is passed through so a
+	// hung ffprobe is cancelled on shutdown.
+	prober func(ctx context.Context, path string) (string, error)
 }
 
 // New creates a new Scanner.
@@ -41,12 +42,12 @@ func New(database *db.DB, cfg *config.Service) *Scanner {
 
 // defaultProber probes a file with the configured ffprobe binary and returns
 // the track listing as JSON.
-func defaultProber(cfg *config.Service) func(path string) (string, error) {
-	return func(path string) (string, error) {
+func defaultProber(cfg *config.Service) func(ctx context.Context, path string) (string, error) {
+	return func(ctx context.Context, path string) (string, error) {
 		if len(cfg.Config.FFprobeCLI) == 0 {
 			return "", fmt.Errorf("ffprobe is not configured or not on PATH")
 		}
-		f, err := probe.Probe(context.Background(), cfg.Config.FFprobeCLI, path)
+		f, err := probe.Probe(ctx, cfg.Config.FFprobeCLI, path)
 		if err != nil {
 			return "", err
 		}
@@ -65,19 +66,19 @@ func (s *Scanner) Run(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	s.scan()
+	s.scan(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.scan()
+			s.scan(ctx)
 		}
 	}
 }
 
-func (s *Scanner) scan() {
+func (s *Scanner) scan(ctx context.Context) {
 	active, err := s.db.IsScanningActive()
 	if err != nil {
 		log.Error("Scanner error reading active state", "err", err)
@@ -94,7 +95,7 @@ func (s *Scanner) scan() {
 
 	current := make(map[string]int64)
 	for _, watch := range s.config.Watch {
-		if err := s.scanDir(watch, current); err != nil {
+		if err := s.scanDir(ctx, watch, current); err != nil {
 			log.Error("Scanner error", "path", watch.Path, "err", err)
 		}
 	}
@@ -138,7 +139,7 @@ func (s *Scanner) pruneStaleJobs() {
 	}
 }
 
-func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
+func (s *Scanner) scanDir(ctx context.Context, watch config.Watch, current map[string]int64) error {
 	info, err := os.Stat(watch.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -183,7 +184,7 @@ func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
 			continue
 		}
 
-		if err := s.queueFile(path, watch); err != nil {
+		if err := s.queueFile(ctx, path, watch); err != nil {
 			log.Error("Failed to queue file", "path", path, "err", err)
 		}
 	}
@@ -191,7 +192,20 @@ func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
 	return nil
 }
 
-func (s *Scanner) queueFile(path string, watch config.Watch) error {
+func (s *Scanner) queueFile(ctx context.Context, path string, watch config.Watch) error {
+	// Any existing job row for this filepath (pending, processing, completed,
+	// or failed) blocks re-queueing. A file whose output was moved away is
+	// only re-encoded once its history row is removed. Checking this before
+	// probing keeps already-queued review files from being re-probed on
+	// every scan cycle.
+	exists, err := s.db.HasJobForFilepath(path)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if len(base) == 0 {
 		base = fmt.Sprintf("video_%d", time.Now().Unix())
@@ -222,7 +236,7 @@ func (s *Scanner) queueFile(path string, watch config.Watch) error {
 	// in the UI. A failed probe is not fatal: the job is still queued and the
 	// UI falls back to rule-based selection without track details.
 	if watch.Review {
-		tracksJSON, err := s.prober(path)
+		tracksJSON, err := s.prober(ctx, path)
 		if err != nil {
 			log.Warn("Failed to probe tracks, queueing without track details", "path", path, "err", err)
 		} else {
@@ -230,9 +244,6 @@ func (s *Scanner) queueFile(path string, watch config.Watch) error {
 		}
 	}
 
-	// Any existing job row for this filepath (pending, processing, completed,
-	// or failed) blocks re-queueing. A file whose output was moved away is
-	// only re-encoded once its history row is removed.
 	id, err := s.db.CreateJob(newJob)
 	if err != nil {
 		return err

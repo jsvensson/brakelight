@@ -70,16 +70,24 @@
             if (e.target && e.target.id === 'queue') restoreQueueState();
         });
         // filterQueueRows hides pending rows whose filename does not contain
-        // the given text (case-insensitive). Changing the filter invalidates
-        // the "all visible" checkbox, so it is unchecked.
+        // the given text (case-insensitive). Rows that become hidden are
+        // unchecked so they are not included in a bulk apply, and changing
+        // the filter invalidates the "all visible" checkbox.
         function filterQueueRows(q) {
             q = q.toLowerCase();
             document.querySelectorAll('#queue tr[data-file]').forEach(function (row) {
                 var name = row.getAttribute('data-file').toLowerCase();
-                row.style.display = name.indexOf(q) !== -1 ? '' : 'none';
+                if (name.indexOf(q) !== -1) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                    var cb = row.querySelector('input[name="ids"]');
+                    if (cb) cb.checked = false;
+                }
             });
             var selectAll = document.getElementById('select-all-visible');
             if (selectAll) selectAll.checked = false;
+            syncCheckedIds();
         }
         // toggleVisibleRows checks or unchecks the review checkboxes of all
         // rows currently visible under the filter.

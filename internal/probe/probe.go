@@ -161,10 +161,18 @@ var iso6391to6392 = map[string]string{
 	"vi": "vie", "zh": "zho",
 }
 
-// NormalizeLanguage lowercases a language tag and converts ISO 639-1 codes to
-// ISO 639-2 so that MP4-style "en" and MKV-style "eng" compare equal.
+// NormalizeLanguage lowercases a language tag, drops any region subtag
+// ("pt-BR" -> "pt"), and converts ISO 639-1 codes to ISO 639-2 so that
+// MP4-style "en" and MKV-style "eng" compare equal.
 func NormalizeLanguage(lang string) string {
 	lang = strings.ToLower(strings.TrimSpace(lang))
+	lang = strings.ReplaceAll(lang, "_", "-")
+	// Strip the region/script subtag when a 2- or 3-letter language code
+	// precedes it ("pt-BR" -> "pt"); private-use tags like "x-custom" are
+	// left intact.
+	if i := strings.IndexByte(lang, '-'); i == 2 || i == 3 {
+		lang = lang[:i]
+	}
 	if len(lang) == 2 {
 		if mapped, ok := iso6391to6392[lang]; ok {
 			return mapped
@@ -174,13 +182,14 @@ func NormalizeLanguage(lang string) string {
 }
 
 // OriginalLanguage determines the file's original audio language: the
-// language of a stream flagged with the "original" disposition, or a
-// container-level ORIGINAL_LANGUAGE tag. It returns "" when neither exists.
+// language of an audio stream flagged with the "original" disposition, or a
+// container-level ORIGINAL_LANGUAGE tag. Subtitle streams are not
+// consulted. It returns "" when neither exists.
 func (f *File) OriginalLanguage() string {
 	if f == nil {
 		return ""
 	}
-	for _, t := range f.Tracks {
+	for _, t := range f.TracksOfType("audio") {
 		if t.Original && len(t.Language) > 0 && NormalizeLanguage(t.Language) != "und" {
 			return NormalizeLanguage(t.Language)
 		}
@@ -221,6 +230,11 @@ func Resolve(rule string, f *File, typ string) ([]int, bool) {
 		}
 		var out []int
 		for _, t := range tracks {
+			// Commentary tracks never count as "original", including the
+			// usual untagged (und) commentary layout.
+			if t.Comment {
+				continue
+			}
 			lang := NormalizeLanguage(t.Language)
 			isUnd := len(lang) == 0 || lang == "und"
 			if lang == orig || t.Original || (isUnd && !t.Dub) {
@@ -266,6 +280,30 @@ func Resolve(rule string, f *File, typ string) ([]int, bool) {
 		return out, true
 	}
 	return nil, false
+}
+
+// ValidRule reports whether rule is a well-formed selection rule:
+// "all", "none", "original", "lang:eng,ita", or "tracks:1,3".
+func ValidRule(rule string) bool {
+	switch {
+	case rule == "all", rule == "none", rule == "original":
+		return true
+	case strings.HasPrefix(rule, "lang:"):
+		for _, l := range strings.Split(strings.TrimPrefix(rule, "lang:"), ",") {
+			if len(strings.TrimSpace(l)) == 0 {
+				return false
+			}
+		}
+		return true
+	case strings.HasPrefix(rule, "tracks:"):
+		for _, p := range strings.Split(strings.TrimPrefix(rule, "tracks:"), ",") {
+			if _, err := strconv.Atoi(strings.TrimSpace(p)); err != nil {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func numsOf(tracks []Track) []int {

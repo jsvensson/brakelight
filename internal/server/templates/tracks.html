@@ -6,7 +6,7 @@
     {{ end }}
     <form hx-post="/queue/{{ .Job.ID }}/tracks"
           hx-target="#queue"
-          hx-on:htmx:after-request="document.getElementById('tracks-modal').hidden = true">
+          hx-on:htmx:after-request="if (event.detail.successful) document.getElementById('tracks-modal').hidden = true">
         <div class="track-group">
             <h4>Audio</h4>
             <select name="audio">
