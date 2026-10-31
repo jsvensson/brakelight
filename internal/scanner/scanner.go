@@ -12,6 +12,7 @@ import (
 
 	"github.com/jsvensson/brakelight/internal/config"
 	"github.com/jsvensson/brakelight/internal/db"
+	"github.com/jsvensson/brakelight/internal/probe"
 )
 
 var mediaExtensions = map[string]bool{
@@ -28,11 +29,30 @@ type Scanner struct {
 	config       *config.Service
 	pausedLogged bool
 	seen         map[string]int64
+	// prober returns the JSON track listing for a media file. It is a field
+	// so tests can substitute a fake. The scan context is passed through so a
+	// hung ffprobe is cancelled on shutdown.
+	prober func(ctx context.Context, path string) (string, error)
 }
 
 // New creates a new Scanner.
 func New(database *db.DB, cfg *config.Service) *Scanner {
-	return &Scanner{db: database, config: cfg}
+	return &Scanner{db: database, config: cfg, prober: defaultProber(cfg)}
+}
+
+// defaultProber probes a file with the configured ffprobe binary and returns
+// the track listing as JSON.
+func defaultProber(cfg *config.Service) func(ctx context.Context, path string) (string, error) {
+	return func(ctx context.Context, path string) (string, error) {
+		if len(cfg.Config.FFprobeCLI) == 0 {
+			return "", fmt.Errorf("ffprobe is not configured or not on PATH")
+		}
+		f, err := probe.Probe(ctx, cfg.Config.FFprobeCLI, path)
+		if err != nil {
+			return "", err
+		}
+		return f.Marshal()
+	}
 }
 
 // Run starts the scanner loop. It returns when ctx is cancelled.
@@ -46,19 +66,19 @@ func (s *Scanner) Run(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	s.scan()
+	s.scan(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.scan()
+			s.scan(ctx)
 		}
 	}
 }
 
-func (s *Scanner) scan() {
+func (s *Scanner) scan(ctx context.Context) {
 	active, err := s.db.IsScanningActive()
 	if err != nil {
 		log.Error("Scanner error reading active state", "err", err)
@@ -75,7 +95,7 @@ func (s *Scanner) scan() {
 
 	current := make(map[string]int64)
 	for _, watch := range s.config.Watch {
-		if err := s.scanDir(watch, current); err != nil {
+		if err := s.scanDir(ctx, watch, current); err != nil {
 			log.Error("Scanner error", "path", watch.Path, "err", err)
 		}
 	}
@@ -119,7 +139,7 @@ func (s *Scanner) pruneStaleJobs() {
 	}
 }
 
-func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
+func (s *Scanner) scanDir(ctx context.Context, watch config.Watch, current map[string]int64) error {
 	info, err := os.Stat(watch.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -164,7 +184,7 @@ func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
 			continue
 		}
 
-		if err := s.queueFile(path, watch); err != nil {
+		if err := s.queueFile(ctx, path, watch); err != nil {
 			log.Error("Failed to queue file", "path", path, "err", err)
 		}
 	}
@@ -172,7 +192,20 @@ func (s *Scanner) scanDir(watch config.Watch, current map[string]int64) error {
 	return nil
 }
 
-func (s *Scanner) queueFile(path string, watch config.Watch) error {
+func (s *Scanner) queueFile(ctx context.Context, path string, watch config.Watch) error {
+	// Any existing job row for this filepath (pending, processing, completed,
+	// or failed) blocks re-queueing. A file whose output was moved away is
+	// only re-encoded once its history row is removed. Checking this before
+	// probing keeps already-queued review files from being re-probed on
+	// every scan cycle.
+	exists, err := s.db.HasJobForFilepath(path)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if len(base) == 0 {
 		base = fmt.Sprintf("video_%d", time.Now().Unix())
@@ -189,16 +222,29 @@ func (s *Scanner) queueFile(path string, watch config.Watch) error {
 		return err
 	}
 
-	// Any existing job row for this filepath (pending, processing, completed,
-	// or failed) blocks re-queueing. A file whose output was moved away is
-	// only re-encoded once its history row is removed.
-	id, err := s.db.CreateJob(db.NewJob{
+	newJob := db.NewJob{
 		Filepath:   path,
 		Preset:     watch.Preset,
 		WatchName:  watch.Name,
 		OutputPath: outputPath,
 		Position:   pos,
-	})
+		Review:     watch.Review,
+	}
+
+	// Review-watch files are probed now, while the scanner has just confirmed
+	// the file is stable, so the track listing is ready when the job is shown
+	// in the UI. A failed probe is not fatal: the job is still queued and the
+	// UI falls back to rule-based selection without track details.
+	if watch.Review {
+		tracksJSON, err := s.prober(ctx, path)
+		if err != nil {
+			log.Warn("Failed to probe tracks, queueing without track details", "path", path, "err", err)
+		} else {
+			newJob.TracksJSON = tracksJSON
+		}
+	}
+
+	id, err := s.db.CreateJob(newJob)
 	if err != nil {
 		return err
 	}
@@ -219,4 +265,3 @@ func fileSize(path string) (int64, error) {
 	}
 	return info.Size(), nil
 }
-

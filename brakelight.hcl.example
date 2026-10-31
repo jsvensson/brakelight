@@ -2,6 +2,10 @@ config {
   output_dir        = "/media/encoded"
   user_presets      = "/Users/bob/Library/Containers/fr.handbrake.HandBrake/Data/Library/Application Support/HandBrake/UserPresets.json"
   handbrake_cli     = "/opt/homebrew/bin/HandBrakeCLI"
+
+  # Optional: ffprobe binary used to inspect tracks of review-watch files.
+  # Default: resolved from PATH.
+  # ffprobe_cli      = "/opt/homebrew/bin/ffprobe"
   log_file          = "/Users/bob/Library/Logs/brakelight.log"
   scan_interval     = "30s"
   partial_extension = ".partial"
@@ -18,6 +22,15 @@ config {
 # A minimal setup that inherits default values from the config block.
 watch "General" {
   path   = "/media/general"
+}
+
+# A review watch: files are probed with ffprobe when queued, and the encode
+# waits until audio/subtitle tracks are chosen per file (or in bulk) in the
+# web UI. The UI pre-selects the original-language audio track when the file
+# marks one. Default: false.
+watch "Review" {
+  path   = "/media/review"
+  review = true
 }
 
 watch "Animated" {

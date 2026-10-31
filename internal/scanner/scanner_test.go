@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,7 +62,7 @@ func TestScanQueuesAllStableFilesOnSecondPass(t *testing.T) {
 	}
 
 	start := time.Now()
-	s.scan()
+	s.scan(context.Background())
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("scan blocked for %v with 8 new files", elapsed)
 	}
@@ -68,7 +70,7 @@ func TestScanQueuesAllStableFilesOnSecondPass(t *testing.T) {
 		t.Errorf("expected 0 jobs after first scan, got %d", got)
 	}
 
-	s.scan()
+	s.scan(context.Background())
 	if got := pendingCount(t, d); got != 8 {
 		t.Errorf("expected 8 jobs after second scan, got %d", got)
 	}
@@ -83,15 +85,15 @@ func TestScanSkipsGrowingFile(t *testing.T) {
 	path := filepath.Join(watchDir, "copying.mkv")
 	writeFile(t, path, 1024)
 
-	s.scan()
+	s.scan(context.Background())
 	writeFile(t, path, 2048)
 
-	s.scan()
+	s.scan(context.Background())
 	if got := pendingCount(t, d); got != 0 {
 		t.Errorf("expected growing file to stay unqueued, got %d jobs", got)
 	}
 
-	s.scan()
+	s.scan(context.Background())
 	if got := pendingCount(t, d); got != 1 {
 		t.Errorf("expected stable file to be queued, got %d jobs", got)
 	}
@@ -105,8 +107,8 @@ func TestScanUsesWatchOutputDir(t *testing.T) {
 
 	writeFile(t, filepath.Join(watchDir, "movie.mkv"), 1024)
 
-	s.scan()
-	s.scan()
+	s.scan(context.Background())
+	s.scan(context.Background())
 
 	jobs, err := d.ListPendingJobs()
 	if err != nil {
@@ -130,8 +132,8 @@ func TestScanSkipsEmptyFile(t *testing.T) {
 
 	writeFile(t, filepath.Join(watchDir, "empty.mkv"), 0)
 
-	s.scan()
-	s.scan()
+	s.scan(context.Background())
+	s.scan(context.Background())
 	if got := pendingCount(t, d); got != 0 {
 		t.Errorf("expected empty file to stay unqueued, got %d jobs", got)
 	}
@@ -146,8 +148,8 @@ func TestScanDoesNotRequeueCompletedJobWithMissingOutput(t *testing.T) {
 
 	writeFile(t, filepath.Join(watchDir, "movie.mkv"), 1024)
 
-	s.scan()
-	s.scan()
+	s.scan(context.Background())
+	s.scan(context.Background())
 
 	jobs, err := d.ListPendingJobs()
 	if err != nil {
@@ -162,7 +164,7 @@ func TestScanDoesNotRequeueCompletedJobWithMissingOutput(t *testing.T) {
 
 	// Output file is "moved away" (never existed in the test). The completed
 	// job row must keep the source from being re-queued.
-	s.scan()
+	s.scan(context.Background())
 	if got := pendingCount(t, d); got != 0 {
 		t.Errorf("expected completed job to block re-queue, got %d pending jobs", got)
 	}
@@ -171,8 +173,135 @@ func TestScanDoesNotRequeueCompletedJobWithMissingOutput(t *testing.T) {
 	if err := d.ClearHistory(); err != nil {
 		t.Fatalf("clear history: %v", err)
 	}
-	s.scan()
+	s.scan(context.Background())
 	if got := pendingCount(t, d); got != 1 {
 		t.Errorf("expected file to be re-queued after history clear, got %d pending jobs", got)
+	}
+}
+
+// Files from a review watch are queued with review=1 and the probed track
+// listing stored as JSON; the prober runs once the file is stable. A failed
+// probe still queues the job, just without track details.
+func TestScanReviewWatchProbesAndStoresTracks(t *testing.T) {
+	watchDir := t.TempDir()
+	s, d := newTestScanner(t, watchDir)
+	s.config.Watch[0].Review = true
+
+	probes := 0
+	s.prober = func(ctx context.Context, path string) (string, error) {
+		probes++
+		return `{"tracks":[{"num":1,"type":"audio","language":"ita","dub":true},{"num":2,"type":"audio","language":"eng","original":true}]}`, nil
+	}
+
+	writeFile(t, filepath.Join(watchDir, "ep01.mkv"), 1024)
+	s.scan(context.Background())
+	if got := pendingCount(t, d); got != 0 {
+		t.Fatalf("expected no jobs on first scan, got %d", got)
+	}
+	s.scan(context.Background())
+
+	jobs, err := d.ListPendingJobs()
+	if err != nil {
+		t.Fatalf("list pending jobs: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if !jobs[0].Review {
+		t.Error("expected review=1 on the queued job")
+	}
+	if jobs[0].TracksJSON == nil || len(*jobs[0].TracksJSON) == 0 {
+		t.Error("expected tracks_json to be stored")
+	}
+	if probes != 1 {
+		t.Errorf("expected prober to run once, got %d", probes)
+	}
+	if jobs[0].AudioSelection != nil {
+		t.Error("expected no selection before UI review")
+	}
+}
+
+// A failing prober must not block queueing of review-watch files.
+func TestScanReviewWatchProbeFailureStillQueues(t *testing.T) {
+	watchDir := t.TempDir()
+	s, d := newTestScanner(t, watchDir)
+	s.config.Watch[0].Review = true
+	s.prober = func(ctx context.Context, path string) (string, error) {
+		return "", errProbeFailed
+	}
+
+	writeFile(t, filepath.Join(watchDir, "ep02.mkv"), 1024)
+	s.scan(context.Background())
+	s.scan(context.Background())
+
+	jobs, err := d.ListPendingJobs()
+	if err != nil {
+		t.Fatalf("list pending jobs: %v", err)
+	}
+	if len(jobs) != 1 || !jobs[0].Review {
+		t.Fatalf("expected 1 review job, got %v", jobs)
+	}
+	if jobs[0].TracksJSON != nil {
+		t.Errorf("expected no tracks_json on probe failure, got %v", *jobs[0].TracksJSON)
+	}
+}
+
+var errProbeFailed = errors.New("probe failed")
+
+// An already-queued review file must not be re-probed on later scans: the
+// job-existence check runs before the prober, so the prober fires exactly
+// once per file even across many scan cycles.
+func TestScanDoesNotReprobeQueuedReviewFile(t *testing.T) {
+	watchDir := t.TempDir()
+	s, d := newTestScanner(t, watchDir)
+	s.config.Watch[0].Review = true
+
+	probes := 0
+	s.prober = func(ctx context.Context, path string) (string, error) {
+		probes++
+		return `{"tracks":[]}`, nil
+	}
+
+	writeFile(t, filepath.Join(watchDir, "ep01.mkv"), 1024)
+	for i := 0; i < 4; i++ {
+		s.scan(context.Background())
+	}
+
+	if got := pendingCount(t, d); got != 1 {
+		t.Fatalf("expected 1 job, got %d", got)
+	}
+	if probes != 1 {
+		t.Errorf("expected prober to run exactly once, got %d", probes)
+	}
+}
+
+// The scan context is threaded into the prober, so a cancelled scan (e.g.
+// shutdown) cancels a hung ffprobe instead of blocking the scan loop.
+func TestScanProberReceivesScanContext(t *testing.T) {
+	watchDir := t.TempDir()
+	s, d := newTestScanner(t, watchDir)
+	s.config.Watch[0].Review = true
+
+	s.prober = func(ctx context.Context, path string) (string, error) {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+
+	writeFile(t, filepath.Join(watchDir, "ep01.mkv"), 1024)
+	s.scan(context.Background())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.scan(ctx)
+
+	jobs, err := d.ListPendingJobs()
+	if err != nil {
+		t.Fatalf("list pending jobs: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected the job to still be queued despite probe failure, got %d jobs", len(jobs))
+	}
+	if jobs[0].TracksJSON != nil {
+		t.Errorf("expected no tracks_json when the probe was cancelled, got %v", *jobs[0].TracksJSON)
 	}
 }

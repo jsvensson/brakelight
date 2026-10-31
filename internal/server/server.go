@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/jsvensson/brakelight/internal/config"
 	"github.com/jsvensson/brakelight/internal/db"
+	"github.com/jsvensson/brakelight/internal/probe"
 	"github.com/jsvensson/brakelight/internal/worker"
 )
 
@@ -45,6 +47,9 @@ func New(database *db.DB, cfg *config.Service, progress *worker.Progress) *Serve
 	mux.HandleFunc("GET /queue", s.handleQueueFragment)
 	mux.HandleFunc("GET /events", s.handleEvents)
 	mux.HandleFunc("POST /queue/", s.handleQueueAction)
+	mux.HandleFunc("GET /queue/{id}/tracks", s.handleTracksForm)
+	mux.HandleFunc("POST /queue/{id}/tracks", s.handleTracksSave)
+	mux.HandleFunc("POST /queue/bulk-tracks", s.handleBulkTracks)
 	mux.HandleFunc("POST /history/", s.handleHistoryAction)
 	mux.HandleFunc("GET /history/", s.handleHistoryLog)
 	mux.HandleFunc("POST /service/encoding/toggle", s.handleToggleEncoding)
@@ -226,6 +231,195 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request, id int64) 
 	s.handleQueueFragment(w, r)
 }
 
+// tracksView is the data passed to the track picker fragment.
+type tracksView struct {
+	Job          *db.Job
+	OriginalLang string
+	AudioRule    string
+	SubRule      string
+	AudioTracks  []probe.Track
+	SubTracks    []probe.Track
+	AudioChecks  map[int]bool
+	SubChecks    map[int]bool
+}
+
+// handleTracksForm renders the track picker for a pending review job. The
+// picker is pre-filled with the stored selection, or with the "original
+// language" suggestion when nothing is stored yet.
+func (s *Server) handleTracksForm(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	job, err := s.db.GetJob(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if job == nil || !job.Review || job.Status != "pending" {
+		http.NotFound(w, r)
+		return
+	}
+
+	tracks, _ := probe.Unmarshal(job.TracksJSON)
+
+	audioRule := tracks.DefaultRule("audio")
+	if job.AudioSelection != nil {
+		audioRule = *job.AudioSelection
+	}
+	subRule := tracks.DefaultRule("subtitle")
+	if job.SubtitleSelection != nil {
+		subRule = *job.SubtitleSelection
+	}
+
+	renderTemplate(w, "templates/tracks.html", tracksView{
+		Job:          job,
+		OriginalLang: tracks.OriginalLanguage(),
+		AudioRule:    ruleKind(audioRule),
+		SubRule:      ruleKind(subRule),
+		AudioTracks:  tracks.TracksOfType("audio"),
+		SubTracks:    tracks.TracksOfType("subtitle"),
+		AudioChecks:  checkedNums(audioRule, tracks, "audio"),
+		SubChecks:    checkedNums(subRule, tracks, "subtitle"),
+	})
+}
+
+// handleTracksSave stores the chosen audio/subtitle rules for one pending
+// review job and re-renders the queue.
+func (s *Server) handleTracksSave(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	job, err := s.db.GetJob(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if job == nil || !job.Review || job.Status != "pending" {
+		http.NotFound(w, r)
+		return
+	}
+
+	audio := ruleFromForm(r.Form, "audio", "audio_tracks")
+	subtitles := ruleFromForm(r.Form, "subtitle", "subtitle_tracks")
+	// An empty or malformed rule must not be stored: it would release the
+	// job for encoding while resolveSelection treats "" as "keep all".
+	if !probe.ValidRule(audio) || !probe.ValidRule(subtitles) {
+		http.Error(w, "invalid track selection", http.StatusBadRequest)
+		return
+	}
+	if err := s.db.SetJobTrackSelection(id, audio, subtitles); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Info("Track selection saved", "id", id, "audio", audio, "subtitles", subtitles)
+
+	s.handleQueueFragment(w, r)
+}
+
+// handleBulkTracks applies one audio/subtitle rule to many pending review
+// jobs at once, then re-renders the queue.
+func (s *Server) handleBulkTracks(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	audio := r.FormValue("bulk_audio")
+	subtitles := r.FormValue("bulk_subtitles")
+	if !probe.ValidRule(audio) || !probe.ValidRule(subtitles) {
+		http.Error(w, "invalid track selection", http.StatusBadRequest)
+		return
+	}
+
+	applied := 0
+	for _, idStr := range r.Form["ids"] {
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			continue
+		}
+		job, err := s.db.GetJob(id)
+		if err != nil || job == nil || !job.Review || job.Status != "pending" {
+			continue
+		}
+		if err := s.db.SetJobTrackSelection(id, audio, subtitles); err != nil {
+			log.Error("Bulk track selection failed for job", "id", id, "err", err)
+			continue
+		}
+		applied++
+	}
+	log.Info("Bulk track selection applied", "count", applied, "audio", audio, "subtitles", subtitles)
+
+	s.handleQueueFragment(w, r)
+}
+
+// ruleKind reduces a stored rule to the picker's select value:
+// "all", "none", "original", or "tracks".
+func ruleKind(rule string) string {
+	switch {
+	case strings.HasPrefix(rule, "tracks:"), strings.HasPrefix(rule, "lang:"):
+		return "tracks"
+	default:
+		return rule
+	}
+}
+
+// ruleFromForm builds a stored rule from the picker form: the select value,
+// or "tracks:n,m" from the checked track boxes when "tracks" is selected
+// ("none" when no box is checked).
+func ruleFromForm(form url.Values, selectName, tracksName string) string {
+	rule := form.Get(selectName)
+	if rule != "tracks" {
+		return rule
+	}
+	var nums []string
+	for _, v := range form[tracksName] {
+		if _, err := strconv.Atoi(v); err == nil {
+			nums = append(nums, v)
+		}
+	}
+	if len(nums) == 0 {
+		return "none"
+	}
+	return "tracks:" + strings.Join(nums, ",")
+}
+
+// checkedNums returns which track boxes the picker should pre-check for a
+// stored or suggested rule.
+func checkedNums(rule string, f *probe.File, typ string) map[int]bool {
+	checks := map[int]bool{}
+	for _, t := range f.TracksOfType(typ) {
+		checks[t.Num] = true
+	}
+	switch ruleKind(rule) {
+	case "all":
+		// all checked
+	case "none":
+		for k := range checks {
+			delete(checks, k)
+		}
+	default:
+		nums, ok := probe.Resolve(rule, f, typ)
+		if !ok {
+			return checks
+		}
+		checks = map[int]bool{}
+		for _, n := range nums {
+			checks[n] = true
+		}
+	}
+	return checks
+}
+
 func (s *Server) handleClearHistory(w http.ResponseWriter, r *http.Request) {
 	if err := s.db.ClearHistory(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -320,12 +514,13 @@ func (s *Server) handleToggleService(w http.ResponseWriter, r *http.Request, nam
 }
 
 type dashboard struct {
-	EncodingActive bool
-	ScanningActive bool
-	ReencodeRisk   int
-	Pending        []*db.Job
-	Processing     []*db.Job
-	History        []*db.Job
+	EncodingActive   bool
+	ScanningActive   bool
+	ReencodeRisk     int
+	HasReviewPending bool
+	Pending          []*db.Job
+	Processing       []*db.Job
+	History          []*db.Job
 }
 
 func (s *Server) dashboardData() dashboard {
@@ -334,7 +529,14 @@ func (s *Server) dashboardData() dashboard {
 	history, _ := s.db.ListRecentHistory(50)
 	encodingActive, _ := s.db.IsEncodingActive()
 	scanningActive, _ := s.db.IsScanningActive()
-	return dashboard{EncodingActive: encodingActive, ScanningActive: scanningActive, ReencodeRisk: s.reencodeRisk(), Pending: pending, Processing: processing, History: history}
+	hasReview := false
+	for _, j := range pending {
+		if j.Review {
+			hasReview = true
+			break
+		}
+	}
+	return dashboard{EncodingActive: encodingActive, ScanningActive: scanningActive, ReencodeRisk: s.reencodeRisk(), HasReviewPending: hasReview, Pending: pending, Processing: processing, History: history}
 }
 
 // reencodeRisk counts completed jobs whose source file still exists in a
@@ -393,7 +595,7 @@ func parseTemplates() (*template.Template, error) {
 		"add":             func(a, b int) int { return a + b },
 		"sub":             func(a, b int) int { return a - b },
 	}
-	return template.New("index.html").Funcs(funcMap).ParseFS(assets, "templates/index.html", "templates/queue.html", "templates/progress.html", "templates/log.html")
+	return template.New("index.html").Funcs(funcMap).ParseFS(assets, "templates/index.html", "templates/queue.html", "templates/progress.html", "templates/log.html", "templates/tracks.html")
 }
 
 func formatTime(t *time.Time) string {
@@ -445,4 +647,3 @@ func sizeChangeClass(job *db.Job) string {
 	}
 	return "size-down"
 }
-

@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 	"testing"
+	"time"
 
 	"github.com/jsvensson/brakelight/internal/config"
 	"github.com/jsvensson/brakelight/internal/db"
@@ -245,5 +245,249 @@ func TestReencodeRisk(t *testing.T) {
 	completeJob(t, outside, filepath.Join(outDir, "other.mkv"))
 	if got := s.reencodeRisk(); got != 0 {
 		t.Errorf("expected risk 0 for source outside watch dirs, got %d", got)
+	}
+}
+
+// newReviewJob inserts a pending review job with a probed dual-audio track
+// listing and returns its ID.
+func newReviewJob(t *testing.T, d *db.DB, filepath string) int64 {
+	t.Helper()
+	pos, err := d.NextPosition()
+	if err != nil {
+		t.Fatalf("next position: %v", err)
+	}
+	id, err := d.CreateJob(db.NewJob{
+		Filepath:   filepath,
+		Preset:     "Standard",
+		WatchName:  "review",
+		OutputPath: "/out/" + filepath,
+		Position:   pos,
+		Review:     true,
+		TracksJSON: `{"tracks":[{"num":1,"type":"audio","language":"ita","default":true,"dub":true},{"num":2,"type":"audio","language":"eng","original":true},{"num":1,"type":"subtitle","language":"ita","default":true},{"num":2,"type":"subtitle","language":"eng"}]}`,
+	})
+	if err != nil || id == 0 {
+		t.Fatalf("create review job: id=%d err=%v", id, err)
+	}
+	return id
+}
+
+// The track picker for a review job lists the probed tracks and pre-selects
+// the "original language" rule, which resolves to English here.
+func TestTracksFormEndpoint(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	s := New(d, &config.Service{Config: &config.Config{}}, &worker.Progress{})
+	id := newReviewJob(t, d, "/media/review/ep01.mkv")
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/queue/%d/tracks", id), nil)
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`value="original" selected`,
+		"Original language only (eng)",
+		`name="audio_tracks" value="1"`,
+		`name="audio_tracks" value="2" checked`,
+		"ita", "eng", "(dub)", "(original)",
+		fmt.Sprintf(`hx-post="/queue/%d/tracks"`, id),
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected picker to contain %q:\n%s", want, body)
+		}
+	}
+
+	// A non-review job has no picker.
+	pos, _ := d.NextPosition()
+	plainID, _ := d.CreateJob(db.NewJob{Filepath: "/media/a.mkv", Preset: "P", WatchName: "w", OutputPath: "/out/a.mkv", Position: pos})
+	req = httptest.NewRequest("GET", fmt.Sprintf("/queue/%d/tracks", plainID), nil)
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for non-review job, got %d", rec.Code)
+	}
+}
+
+// Saving the picker stores the rules on the job, which then becomes eligible
+// for encoding; a custom track selection is stored as "tracks:n,m".
+func TestTracksSaveEndpoint(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	s := New(d, &config.Service{Config: &config.Config{}}, &worker.Progress{})
+	id := newReviewJob(t, d, "/media/review/ep01.mkv")
+
+	// Not eligible before a selection exists.
+	if job, _ := d.NextPendingJob(); job != nil {
+		t.Fatalf("expected no eligible job before selection, got %v", job)
+	}
+
+	form := "audio=original&subtitle=all"
+	req := httptest.NewRequest("POST", fmt.Sprintf("/queue/%d/tracks", id), strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	job, err := d.GetJob(id)
+	if err != nil || job == nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if job.AudioSelection == nil || *job.AudioSelection != "original" {
+		t.Errorf("expected audio_selection=original, got %v", job.AudioSelection)
+	}
+	if job.SubtitleSelection == nil || *job.SubtitleSelection != "all" {
+		t.Errorf("expected subtitle_selection=all, got %v", job.SubtitleSelection)
+	}
+	if next, _ := d.NextPendingJob(); next == nil || next.ID != id {
+		t.Errorf("expected job to be eligible after selection, got %v", next)
+	}
+
+	// Custom track selection: only track 2 checked.
+	id2 := newReviewJob(t, d, "/media/review/ep02.mkv")
+	form = "audio=tracks&audio_tracks=2&subtitle=tracks&subtitle_tracks=1&subtitle_tracks=2"
+	req = httptest.NewRequest("POST", fmt.Sprintf("/queue/%d/tracks", id2), strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	job, _ = d.GetJob(id2)
+	if job.AudioSelection == nil || *job.AudioSelection != "tracks:2" {
+		t.Errorf("expected audio_selection=tracks:2, got %v", job.AudioSelection)
+	}
+	if job.SubtitleSelection == nil || *job.SubtitleSelection != "tracks:1,2" {
+		t.Errorf("expected subtitle_selection=tracks:1,2, got %v", job.SubtitleSelection)
+	}
+
+	// A missing/empty rule is rejected and must not be stored: an empty
+	// selection would release the job while the worker treats "" as "all".
+	id3 := newReviewJob(t, d, "/media/review/ep03.mkv")
+	form = "subtitle=all"
+	req = httptest.NewRequest("POST", fmt.Sprintf("/queue/%d/tracks", id3), strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty audio rule, got %d", rec.Code)
+	}
+	job, _ = d.GetJob(id3)
+	if job.AudioSelection != nil {
+		t.Errorf("expected no stored selection after rejected save, got %v", *job.AudioSelection)
+	}
+
+	form = "audio=bogus&subtitle=all"
+	req = httptest.NewRequest("POST", fmt.Sprintf("/queue/%d/tracks", id3), strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for unknown rule, got %d", rec.Code)
+	}
+}
+
+// The bulk endpoint applies one rule to all checked review jobs at once and
+// ignores IDs that are not pending review jobs.
+func TestBulkTracksEndpoint(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	s := New(d, &config.Service{Config: &config.Config{}}, &worker.Progress{})
+	id1 := newReviewJob(t, d, "/media/review/ep01.mkv")
+	id2 := newReviewJob(t, d, "/media/review/ep02.mkv")
+	pos, _ := d.NextPosition()
+	plainID, _ := d.CreateJob(db.NewJob{Filepath: "/media/a.mkv", Preset: "P", WatchName: "w", OutputPath: "/out/a.mkv", Position: pos})
+
+	form := fmt.Sprintf("ids=%d&ids=%d&ids=%d&ids=9999&bulk_audio=original&bulk_subtitles=none", id1, id2, plainID)
+	req := httptest.NewRequest("POST", "/queue/bulk-tracks", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	for _, id := range []int64{id1, id2} {
+		job, _ := d.GetJob(id)
+		if job.AudioSelection == nil || *job.AudioSelection != "original" {
+			t.Errorf("job %d: expected audio_selection=original, got %v", id, job.AudioSelection)
+		}
+		if job.SubtitleSelection == nil || *job.SubtitleSelection != "none" {
+			t.Errorf("job %d: expected subtitle_selection=none, got %v", id, job.SubtitleSelection)
+		}
+	}
+
+	// The non-review job must be untouched.
+	plain, _ := d.GetJob(plainID)
+	if plain.AudioSelection != nil {
+		t.Errorf("non-review job should not get a selection, got %v", *plain.AudioSelection)
+	}
+
+	// The queue fragment shows the saved state as a badge.
+	if !strings.Contains(rec.Body.String(), "tracks set") {
+		t.Errorf("expected queue fragment to show 'tracks set' badge:\n%s", rec.Body.String())
+	}
+
+	// An empty bulk rule is rejected instead of silently defaulting to "all".
+	req = httptest.NewRequest("POST", "/queue/bulk-tracks", strings.NewReader(fmt.Sprintf("ids=%d&bulk_audio=&bulk_subtitles=none", id1)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty bulk rule, got %d", rec.Code)
+	}
+}
+
+// Review rows carry a row-level class so their state is visible at a glance:
+// review-awaiting (amber) before a selection exists, review-set (green) after.
+func TestQueueFragmentReviewRowClasses(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	s := New(d, &config.Service{Config: &config.Config{}}, &worker.Progress{})
+	awaitingID := newReviewJob(t, d, "/media/review/ep01.mkv")
+	setID := newReviewJob(t, d, "/media/review/ep02.mkv")
+	if err := d.SetJobTrackSelection(setID, "original", "all"); err != nil {
+		t.Fatalf("set selection: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/queue", nil)
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`class="review-awaiting"`, `class="review-set"`, "needs review", "tracks set"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected queue fragment to contain %q", want)
+		}
+	}
+	if awaitingID == setID {
+		t.Fatal("test setup: expected distinct job ids")
+	}
+	// Only rows still awaiting review get a bulk checkbox; rows with a saved
+	// selection are excluded so a bulk apply cannot overwrite them.
+	if n := strings.Count(body, `name="ids"`); n != 1 {
+		t.Errorf("expected exactly 1 bulk checkbox (awaiting row only), got %d:\n%s", n, body)
 	}
 }

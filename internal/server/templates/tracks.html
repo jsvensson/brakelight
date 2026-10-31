@@ -1,0 +1,45 @@
+{{ define "tracks.html" }}
+<div class="tracks-picker">
+    <h3 class="tracks-title" title="{{ .Job.Filepath }}">{{ base .Job.Filepath }}</h3>
+    {{ if not .AudioTracks }}
+    <div class="empty">No audio track details available (probe failed or file has no audio).</div>
+    {{ end }}
+    <form hx-post="/queue/{{ .Job.ID }}/tracks"
+          hx-target="#queue"
+          hx-on:htmx:after-request="if (event.detail.successful) document.getElementById('tracks-modal').hidden = true">
+        <div class="track-group">
+            <h4>Audio</h4>
+            <select name="audio">
+                <option value="all" {{ if eq .AudioRule "all" }}selected{{ end }}>All tracks</option>
+                <option value="none" {{ if eq .AudioRule "none" }}selected{{ end }}>No audio</option>
+                <option value="original" {{ if eq .AudioRule "original" }}selected{{ end }}>Original language only{{ if .OriginalLang }} ({{ .OriginalLang }}){{ end }}</option>
+                <option value="tracks" {{ if eq .AudioRule "tracks" }}selected{{ end }}>Selected tracks&hellip;</option>
+            </select>
+            {{ range .AudioTracks }}
+            <label class="track-option">
+                <input type="checkbox" name="audio_tracks" value="{{ .Num }}" {{ if index $.AudioChecks .Num }}checked{{ end }}>
+                #{{ .Num }} {{ if .Language }}{{ .Language }}{{ else }}und{{ end }}{{ if .Codec }} &middot; {{ .Codec }}{{ end }}{{ if .Title }} &middot; {{ .Title }}{{ end }}{{ if .Default }} (default){{ end }}{{ if .Original }} (original){{ end }}{{ if .Dub }} (dub){{ end }}
+            </label>
+            {{ end }}
+        </div>
+        <div class="track-group">
+            <h4>Subtitles</h4>
+            <select name="subtitle">
+                <option value="all" {{ if eq .SubRule "all" }}selected{{ end }}>All tracks</option>
+                <option value="none" {{ if eq .SubRule "none" }}selected{{ end }}>No subtitles</option>
+                <option value="original" {{ if eq .SubRule "original" }}selected{{ end }}>Original language only{{ if .OriginalLang }} ({{ .OriginalLang }}){{ end }}</option>
+                <option value="tracks" {{ if eq .SubRule "tracks" }}selected{{ end }}>Selected tracks&hellip;</option>
+            </select>
+            {{ range .SubTracks }}
+            <label class="track-option">
+                <input type="checkbox" name="subtitle_tracks" value="{{ .Num }}" {{ if index $.SubChecks .Num }}checked{{ end }}>
+                #{{ .Num }} {{ if .Language }}{{ .Language }}{{ else }}und{{ end }}{{ if .Title }} &middot; {{ .Title }}{{ end }}{{ if .Default }} (default){{ end }}{{ if .Comment }} (comment){{ end }}
+            </label>
+            {{ end }}
+        </div>
+        <div class="tracks-actions">
+            <button type="submit">Save and queue</button>
+        </div>
+    </form>
+</div>
+{{ end }}

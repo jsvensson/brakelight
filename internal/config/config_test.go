@@ -381,3 +381,62 @@ watch "general" {
 		t.Errorf("expected expanded watch output_dir %q, got %q", want, got)
 	}
 }
+
+// A watch's review flag defaults to false and is honored when set. Review
+// watches queue files for track selection in the UI before encoding.
+func TestWatchReviewFlag(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+}
+
+watch "review" {
+  path   = "/media/review"
+  preset = "Standard"
+  review = true
+}
+
+watch "plain" {
+  path   = "/media/other"
+  preset = "Standard"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !svc.Watch[0].Review {
+		t.Error("expected review to be true when set")
+	}
+	if svc.Watch[1].Review {
+		t.Error("expected review to default to false")
+	}
+}
+
+// A leading ~/ in ffprobe_cli is expanded at load time; when the setting is
+// absent, ffprobe is resolved from PATH when available.
+func TestFFprobeCLIExpandsHome(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+  ffprobe_cli  = "~/bin/ffprobe"
+}
+
+watch "general" {
+  path   = "/media/watch"
+  preset = "Standard"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	want := filepath.Join(os.Getenv("HOME"), "bin", "ffprobe")
+	if got := svc.Config.FFprobeCLI; got != want {
+		t.Errorf("expected expanded ffprobe_cli %q, got %q", want, got)
+	}
+}
