@@ -70,19 +70,44 @@
 
 <div class="section">
     <h2>Queue</h2>
+    {{ if .HasReviewPending }}
+    <form class="bulk-bar" id="bulk-form" onsubmit="return false" hx-preserve="true">
+        <input type="text" id="queue-filter" placeholder="Filter files&hellip;" oninput="filterQueueRows(this.value)">
+        <label class="bulk-select-all"><input type="checkbox" id="select-all-visible" onclick="toggleVisibleRows(this)"> all visible</label>
+        <label>Audio
+            <select name="bulk_audio">
+                <option value="original" selected>Original language</option>
+                <option value="all">All tracks</option>
+                <option value="none">None</option>
+            </select>
+        </label>
+        <label>Subtitles
+            <select name="bulk_subtitles">
+                <option value="all" selected>All tracks</option>
+                <option value="original">Original language</option>
+                <option value="none">None</option>
+            </select>
+        </label>
+        <button hx-post="/queue/bulk-tracks"
+                hx-confirm="Apply this audio/subtitle selection to all checked review jobs?"
+                hx-target="#queue">Apply to selected</button>
+    </form>
+    {{ end }}
     {{ if .Pending }}
     <table>
         <colgroup>
             <col style="width: 2.5rem;">
+            <col style="width: 2rem;">
             <col>
             <col style="width: 8rem;">
             <col style="width: 10rem;">
             <col style="width: 5rem;">
-            <col style="width: 12rem;">
+            <col style="width: 16rem;">
         </colgroup>
         <thead>
             <tr>
                 <th>#</th>
+                <th></th>
                 <th>File</th>
                 <th>Watch</th>
                 <th>Added</th>
@@ -92,9 +117,12 @@
         </thead>
         <tbody>
             {{ range $i, $job := .Pending }}
-            <tr>
+            <tr data-file="{{ base $job.Filepath }}"{{ if $job.Review }} class="{{ if $job.AudioSelection }}review-set{{ else }}review-awaiting{{ end }}"{{ end }}>
                 <td>{{ add $i 1 }}</td>
-                <td class="filename" title="{{ base $job.Filepath }}">{{ base $job.Filepath }}</td>
+                <td>{{ if $job.Review }}<input type="checkbox" form="bulk-form" name="ids" value="{{ $job.ID }}">{{ end }}</td>
+                <td class="filename" title="{{ base $job.Filepath }}">{{ base $job.Filepath }}
+                    {{ if $job.Review }}{{ if $job.AudioSelection }}<span class="status-badge active" title="Audio: {{ $job.AudioSelection }}, subtitles: {{ $job.SubtitleSelection }}">tracks set</span>{{ else }}<span class="status-badge warn">needs review</span>{{ end }}{{ end }}
+                </td>
                 <td>{{ if $job.WatchName }}{{ $job.WatchName }}{{ else }}{{ $job.Preset }}{{ end }}</td>
                 <td>{{ formatTime $job.CreatedAt }}</td>
                 <td>{{ $job.Attempts }}</td>
@@ -111,6 +139,12 @@
                         hx-post="/queue/{{ $job.ID }}/move"
                         hx-vals='{"index": {{ add $i 1 }}}'
                         hx-target="#queue">↓</button>
+                    {{ if $job.Review }}
+                    <button class="secondary"
+                        hx-get="/queue/{{ $job.ID }}/tracks"
+                        hx-target="#tracks-modal-content"
+                        hx-on:htmx:after-request="document.getElementById('tracks-modal').hidden = false">Tracks</button>
+                    {{ end }}
                     <button class="danger"
                         hx-post="/queue/{{ $job.ID }}/cancel"
                         hx-confirm="Cancel this job?"

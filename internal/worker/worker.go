@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/jsvensson/brakelight/internal/config"
 	"github.com/jsvensson/brakelight/internal/db"
+	"github.com/jsvensson/brakelight/internal/probe"
 )
 
 const encodeTimeout = 4 * time.Hour
@@ -144,7 +146,7 @@ func (w *Worker) processJob(ctx context.Context, job *db.Job) error {
 	w.progress.Start(job.ID)
 	defer w.progress.Stop()
 
-	output, err := w.runHandBrake(ctx, job.Filepath, partialPath, job.Preset, subtitle)
+	output, err := w.runHandBrake(ctx, job, partialPath, subtitle)
 	output = preLog + output
 	if err != nil {
 		// Clean up partial file on failure.
@@ -249,20 +251,63 @@ func (w *Worker) runCommands(ctx context.Context, jobID int64, cmds []string, ou
 
 // handbrakeArgs builds the HandBrakeCLI arguments for a job. When subtitle
 // is non-empty, the sidecar SRT is embedded as an English subtitle track and
-// marked as default.
-func (w *Worker) handbrakeArgs(input, output, preset, subtitle string) []string {
+// marked as default. audioAll/subAll select all source tracks; otherwise the
+// given 1-based track numbers are selected ("none" when empty).
+func (w *Worker) handbrakeArgs(input, output, preset, subtitle string, audioAll bool, audioNums []int, subAll bool, subNums []int) []string {
 	args := []string{
 		"--preset-import-file", w.config.Config.UserPresets,
 		"--preset", preset,
 		"-i", input,
 		"-o", output,
-		"--all-audio",
-		"--all-subtitles",
+	}
+	if audioAll {
+		args = append(args, "--all-audio")
+	} else {
+		args = append(args, "-a", numsArg(audioNums))
+	}
+	if subAll {
+		args = append(args, "--all-subtitles")
+	} else {
+		args = append(args, "-s", numsArg(subNums))
 	}
 	if len(subtitle) > 0 {
 		args = append(args, "--srt-file", subtitle, "--srt-lang", "eng", "--srt-default")
 	}
 	return args
+}
+
+// numsArg renders selected track numbers for -a/-s: "none" when empty.
+func numsArg(nums []int) string {
+	if len(nums) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(nums))
+	for i, n := range nums {
+		parts[i] = strconv.Itoa(n)
+	}
+	return strings.Join(parts, ",")
+}
+
+// resolveSelection evaluates a stored selection rule against the job's probed
+// tracks. It returns all=true when the default "keep everything" behavior
+// should be used: no rule stored, rule "all", missing probe data, or a rule
+// that matched nothing.
+func resolveSelection(rule, tracksJSON *string, typ string) (all bool, nums []int) {
+	if rule == nil || len(*rule) == 0 || *rule == "all" {
+		return true, nil
+	}
+	f, err := probe.Unmarshal(tracksJSON)
+	if err != nil || f == nil {
+		log.Warn("No probe data for track selection, keeping all tracks", "rule", *rule, "type", typ, "err", err)
+		return true, nil
+	}
+	nums, ok := probe.Resolve(*rule, f, typ)
+	if !ok {
+		log.Warn("Track selection matched nothing, keeping all tracks", "rule", *rule, "type", typ)
+		return true, nil
+	}
+	log.Info("Track selection", "type", typ, "rule", *rule, "tracks", numsArg(nums))
+	return false, nums
 }
 
 // commaSafeSubtitle works around HandBrakeCLI splitting --srt-file on
@@ -308,7 +353,7 @@ func sidecarSubtitle(inputPath string) string {
 	return srt
 }
 
-func (w *Worker) runHandBrake(ctx context.Context, input, output, preset, subtitle string) (string, error) {
+func (w *Worker) runHandBrake(ctx context.Context, job *db.Job, output, subtitle string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, encodeTimeout)
 	defer cancel()
 
@@ -324,7 +369,10 @@ func (w *Worker) runHandBrake(ctx context.Context, input, output, preset, subtit
 		subtitle = safe
 	}
 
-	args := w.handbrakeArgs(input, output, preset, subtitle)
+	audioAll, audioNums := resolveSelection(job.AudioSelection, job.TracksJSON, "audio")
+	subAll, subNums := resolveSelection(job.SubtitleSelection, job.TracksJSON, "subtitle")
+
+	args := w.handbrakeArgs(job.Filepath, output, job.Preset, subtitle, audioAll, audioNums, subAll, subNums)
 
 	cmd := exec.CommandContext(ctx, w.handbrakePath, args...)
 

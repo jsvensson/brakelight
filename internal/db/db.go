@@ -10,23 +10,30 @@ import (
 
 // Job represents a conversion job.
 type Job struct {
-	ID            int64
-	Filepath      string
-	Preset        string
-	WatchName     string
-	OutputPath    string
-	Status        string
-	Position      *int64
-	Attempts      int
-	CreatedAt     time.Time
-	StartedAt     *time.Time
-	CompletedAt   *time.Time
-	ErrorMessage  *string
-	LogOutput     *string
-	CommandErrors *string
-	SourceSize    *int
-	OutputSize    *int
+	ID                int64
+	Filepath          string
+	Preset            string
+	WatchName         string
+	OutputPath        string
+	Status            string
+	Position          *int64
+	Attempts          int
+	CreatedAt         time.Time
+	StartedAt         *time.Time
+	CompletedAt       *time.Time
+	ErrorMessage      *string
+	LogOutput         *string
+	CommandErrors     *string
+	SourceSize        *int
+	OutputSize        *int
+	Review            bool
+	TracksJSON        *string
+	AudioSelection    *string
+	SubtitleSelection *string
 }
+
+// jobColumns is the SELECT list shared by all job queries.
+const jobColumns = `id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size, review, tracks_json, audio_selection, subtitle_selection`
 
 // DB wraps the SQLite connection.
 type DB struct {
@@ -40,6 +47,8 @@ type NewJob struct {
 	WatchName  string
 	OutputPath string
 	Position   int64
+	Review     bool
+	TracksJSON string
 }
 
 // JobLog holds the stored log output for a completed or failed job.
@@ -127,6 +136,10 @@ CREATE TABLE IF NOT EXISTS service_state (
 		{"command_errors", `ALTER TABLE jobs ADD COLUMN command_errors TEXT`},
 		{"source_size", `ALTER TABLE jobs ADD COLUMN source_size INTEGER`},
 		{"output_size", `ALTER TABLE jobs ADD COLUMN output_size INTEGER`},
+		{"review", `ALTER TABLE jobs ADD COLUMN review INTEGER NOT NULL DEFAULT 0`},
+		{"tracks_json", `ALTER TABLE jobs ADD COLUMN tracks_json TEXT`},
+		{"audio_selection", `ALTER TABLE jobs ADD COLUMN audio_selection TEXT`},
+		{"subtitle_selection", `ALTER TABLE jobs ADD COLUMN subtitle_selection TEXT`},
 	}
 	for _, col := range addColumns {
 		if existing[col.name] {
@@ -181,9 +194,18 @@ func (db *DB) CreateJob(job NewJob) (int64, error) {
 		return 0, nil
 	}
 
+	review := 0
+	if job.Review {
+		review = 1
+	}
+	// Store an empty track listing as NULL so "no probe data" reads back as nil.
+	var tracksJSON interface{}
+	if len(job.TracksJSON) > 0 {
+		tracksJSON = job.TracksJSON
+	}
 	res, err := tx.Exec(
-		`INSERT OR IGNORE INTO jobs (filepath, preset, watch_name, output_path, status, position, attempts) VALUES (?, ?, ?, ?, 'pending', ?, 0)`,
-		job.Filepath, job.Preset, job.WatchName, job.OutputPath, job.Position,
+		`INSERT OR IGNORE INTO jobs (filepath, preset, watch_name, output_path, status, position, attempts, review, tracks_json) VALUES (?, ?, ?, ?, 'pending', ?, 0, ?, ?)`,
+		job.Filepath, job.Preset, job.WatchName, job.OutputPath, job.Position, review, tracksJSON,
 	)
 	if err != nil {
 		return 0, err
@@ -205,16 +227,37 @@ func (db *DB) CreateJob(job NewJob) (int64, error) {
 	return id, nil
 }
 
-// NextPendingJob returns the pending job with the lowest position.
+// NextPendingJob returns the pending job with the lowest position. Jobs from
+// review watches are skipped until an audio track selection has been made.
 func (db *DB) NextPendingJob() (*Job, error) {
 	row := db.conn.QueryRow(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
+		SELECT ` + jobColumns + `
 		FROM jobs
-		WHERE status = 'pending'
+		WHERE status = 'pending' AND (review = 0 OR audio_selection IS NOT NULL)
 		ORDER BY position ASC, created_at ASC
 		LIMIT 1
 	`)
 	return scanJob(row)
+}
+
+// GetJob returns the job with the given ID, or nil when it does not exist.
+func (db *DB) GetJob(id int64) (*Job, error) {
+	row := db.conn.QueryRow(`
+		SELECT `+jobColumns+`
+		FROM jobs
+		WHERE id = ?
+	`, id)
+	return scanJob(row)
+}
+
+// SetJobTrackSelection stores the audio and subtitle selection rules for a
+// pending job, making a review job eligible for encoding.
+func (db *DB) SetJobTrackSelection(id int64, audio, subtitles string) error {
+	_, err := db.conn.Exec(
+		`UPDATE jobs SET audio_selection = ?, subtitle_selection = ? WHERE id = ? AND status = 'pending'`,
+		audio, subtitles, id,
+	)
+	return err
 }
 
 // SetJobProcessing marks a job as processing.
@@ -288,7 +331,7 @@ func (db *DB) ResetJobToPending(id int64, position int64) error {
 // ListPendingJobs returns all pending jobs ordered by position.
 func (db *DB) ListPendingJobs() ([]*Job, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
+		SELECT ` + jobColumns + `
 		FROM jobs
 		WHERE status = 'pending'
 		ORDER BY position ASC, created_at ASC
@@ -303,7 +346,7 @@ func (db *DB) ListPendingJobs() ([]*Job, error) {
 // ListProcessingJobs returns all currently processing jobs (should be 0 or 1).
 func (db *DB) ListProcessingJobs() ([]*Job, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
+		SELECT ` + jobColumns + `
 		FROM jobs
 		WHERE status = 'processing'
 		ORDER BY started_at ASC
@@ -318,7 +361,7 @@ func (db *DB) ListProcessingJobs() ([]*Job, error) {
 // ListRecentHistory returns the most recent completed or failed jobs.
 func (db *DB) ListRecentHistory(limit int) ([]*Job, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
+		SELECT `+jobColumns+`
 		FROM jobs
 		WHERE status IN ('completed', 'failed')
 		ORDER BY completed_at DESC
@@ -334,7 +377,7 @@ func (db *DB) ListRecentHistory(limit int) ([]*Job, error) {
 // ListCompletedJobs returns all completed jobs, regardless of age.
 func (db *DB) ListCompletedJobs() ([]*Job, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, filepath, preset, watch_name, output_path, status, position, attempts, created_at, started_at, completed_at, error_message, log_output, command_errors, source_size, output_size
+		SELECT ` + jobColumns + `
 		FROM jobs
 		WHERE status = 'completed'
 		ORDER BY completed_at DESC
@@ -510,14 +553,14 @@ func (db *DB) setActive(key string, active bool) error {
 
 func scanJob(row *sql.Row) (*Job, error) {
 	j := &Job{}
-	var pos, sourceSize, outputSize sql.NullInt64
+	var pos, sourceSize, outputSize, review sql.NullInt64
 	var started, completed sql.NullTime
-	var errMsg, logOut, cmdErrs sql.NullString
+	var errMsg, logOut, cmdErrs, tracksJSON, audioSel, subSel sql.NullString
 
 	err := row.Scan(
 		&j.ID, &j.Filepath, &j.Preset, &j.WatchName, &j.OutputPath, &j.Status, &pos,
 		&j.Attempts, &j.CreatedAt, &started, &completed, &errMsg, &logOut, &cmdErrs,
-		&sourceSize, &outputSize,
+		&sourceSize, &outputSize, &review, &tracksJSON, &audioSel, &subSel,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -553,6 +596,19 @@ func scanJob(row *sql.Row) (*Job, error) {
 		s := int(outputSize.Int64)
 		j.OutputSize = &s
 	}
+	j.Review = review.Valid && review.Int64 == 1
+	if tracksJSON.Valid {
+		s := tracksJSON.String
+		j.TracksJSON = &s
+	}
+	if audioSel.Valid {
+		s := audioSel.String
+		j.AudioSelection = &s
+	}
+	if subSel.Valid {
+		s := subSel.String
+		j.SubtitleSelection = &s
+	}
 
 	return j, nil
 }
@@ -561,14 +617,14 @@ func scanJobs(rows *sql.Rows) ([]*Job, error) {
 	var jobs []*Job
 	for rows.Next() {
 		j := &Job{}
-		var pos, sourceSize, outputSize sql.NullInt64
+		var pos, sourceSize, outputSize, review sql.NullInt64
 		var started, completed sql.NullTime
-		var errMsg, logOut, cmdErrs sql.NullString
+		var errMsg, logOut, cmdErrs, tracksJSON, audioSel, subSel sql.NullString
 
 		if err := rows.Scan(
 			&j.ID, &j.Filepath, &j.Preset, &j.WatchName, &j.OutputPath, &j.Status, &pos,
 			&j.Attempts, &j.CreatedAt, &started, &completed, &errMsg, &logOut, &cmdErrs,
-			&sourceSize, &outputSize,
+			&sourceSize, &outputSize, &review, &tracksJSON, &audioSel, &subSel,
 		); err != nil {
 			return nil, err
 		}
@@ -599,6 +655,19 @@ func scanJobs(rows *sql.Rows) ([]*Job, error) {
 		if outputSize.Valid {
 			s := int(outputSize.Int64)
 			j.OutputSize = &s
+		}
+		j.Review = review.Valid && review.Int64 == 1
+		if tracksJSON.Valid {
+			s := tracksJSON.String
+			j.TracksJSON = &s
+		}
+		if audioSel.Valid {
+			s := audioSel.String
+			j.AudioSelection = &s
+		}
+		if subSel.Valid {
+			s := subSel.String
+			j.SubtitleSelection = &s
 		}
 
 		jobs = append(jobs, j)

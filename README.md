@@ -12,6 +12,7 @@
 - Retry failed jobs, or cancel pending ones.
 - Keeps job history and HandBrake output for debugging.
 - Embeds sidecar subtitles: if `a.srt` exists next to `a.mkv`, it is added to the output as an English subtitle track and marked as default.
+- Review watches (`review = true`): files are probed with ffprobe when queued and wait in the queue until you pick their audio/subtitle tracks in the web UI, per file or in bulk for all checked files. The picker pre-selects the original-language audio track when the file marks one (e.g. an English original with an Italian default dub keeps only English). Selections are stored as rules (`all`, `none`, `original`, `lang:eng`, `tracks:1,3`) and resolved per file at encode time; if a rule matches nothing, all tracks are kept. Jobs from review watches are not encoded before a selection is made.
 - Pause/resume the service from the UI; pausing stops new scans and conversions while letting the active encode finish. The state persists across restarts.
 
 ## Build
@@ -29,6 +30,10 @@ config {
   output_dir        = "/media/encoded"
   user_presets      = "/Users/bob/Library/Containers/fr.handbrake.HandBrake/Data/Library/Application Support/HandBrake/UserPresets.json"
   handbrake_cli     = "/opt/homebrew/bin/HandBrakeCLI"
+
+  # Optional: ffprobe binary used to inspect tracks of review-watch files.
+  # Default: resolved from PATH.
+  # ffprobe_cli      = "/opt/homebrew/bin/ffprobe"
   log_file          = "/Users/bob/Library/Logs/brakelight.log"
   scan_interval     = "30s"
   partial_extension = ".partial"
@@ -46,6 +51,13 @@ config {
 watch "General" {
   path   = "/media/queue/general"
   preset = Default"
+}
+
+# A review watch: queued files are probed and wait for a per-file (or bulk)
+# audio/subtitle track selection in the web UI before encoding.
+watch "Review" {
+  path   = "/media/queue/review"
+  review = true
 }
 
 watch "Animated" {

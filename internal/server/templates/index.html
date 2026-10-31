@@ -23,6 +23,74 @@
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') closeLogModal();
         });
+        function closeTracksModal() {
+            document.getElementById('tracks-modal').hidden = true;
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+            var tm = document.getElementById('tracks-modal');
+            document.getElementById('tracks-modal-close').addEventListener('click', closeTracksModal);
+            tm.addEventListener('click', function (e) {
+                if (e.target === this) closeTracksModal();
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && !tm.hidden) closeTracksModal();
+            });
+        });
+        // checkedIds tracks which review-job checkboxes are selected so the
+        // selection survives the periodic queue refresh (htmx swaps the table
+        // rows; the checkboxes themselves are not preserved).
+        var checkedIds = {};
+        function syncCheckedIds() {
+            checkedIds = {};
+            document.querySelectorAll('#queue input[name="ids"]:checked').forEach(function (cb) {
+                checkedIds[cb.value] = true;
+            });
+        }
+        // restoreQueueState re-applies the checked state and the filename
+        // filter after the queue fragment has been swapped in.
+        function restoreQueueState() {
+            var filter = document.getElementById('queue-filter');
+            var q = filter ? filter.value.toLowerCase() : '';
+            var next = {};
+            document.querySelectorAll('#queue tr[data-file]').forEach(function (row) {
+                var name = row.getAttribute('data-file').toLowerCase();
+                row.style.display = (q && name.indexOf(q) === -1) ? 'none' : '';
+                var cb = row.querySelector('input[name="ids"]');
+                if (cb) {
+                    cb.checked = !!checkedIds[cb.value];
+                    if (cb.checked) next[cb.value] = true;
+                }
+            });
+            checkedIds = next;
+        }
+        document.addEventListener('change', function (e) {
+            if (e.target && e.target.name === 'ids') syncCheckedIds();
+        });
+        document.addEventListener('htmx:afterSwap', function (e) {
+            if (e.target && e.target.id === 'queue') restoreQueueState();
+        });
+        // filterQueueRows hides pending rows whose filename does not contain
+        // the given text (case-insensitive). Changing the filter invalidates
+        // the "all visible" checkbox, so it is unchecked.
+        function filterQueueRows(q) {
+            q = q.toLowerCase();
+            document.querySelectorAll('#queue tr[data-file]').forEach(function (row) {
+                var name = row.getAttribute('data-file').toLowerCase();
+                row.style.display = name.indexOf(q) !== -1 ? '' : 'none';
+            });
+            var selectAll = document.getElementById('select-all-visible');
+            if (selectAll) selectAll.checked = false;
+        }
+        // toggleVisibleRows checks or unchecks the review checkboxes of all
+        // rows currently visible under the filter.
+        function toggleVisibleRows(source) {
+            document.querySelectorAll('#queue tr[data-file]').forEach(function (row) {
+                if (row.style.display === 'none') return;
+                var cb = row.querySelector('input[name="ids"]');
+                if (cb) cb.checked = source.checked;
+            });
+            syncCheckedIds();
+        }
     </script>
     <style>
         :root {
@@ -228,6 +296,67 @@
             font-weight: 600;
         }
         .modal .log-output { max-height: 60vh; }
+        .bulk-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+        .bulk-bar input[type="text"] {
+            background: var(--inset);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            padding: 0.35rem 0.6rem;
+            font-size: 0.85rem;
+        }
+        .bulk-bar select {
+            background: var(--inset);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            padding: 0.3rem 0.4rem;
+            font-size: 0.85rem;
+            margin-left: 0.3rem;
+        }
+        .bulk-select-all { display: flex; align-items: center; gap: 0.3rem; }
+        .tracks-title {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.95rem;
+            margin: 0 0 1rem;
+            word-break: break-all;
+        }
+        .track-group { margin-bottom: 1rem; }
+        .track-group h4 {
+            margin: 0 0 0.5rem;
+            font-size: 0.85rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .track-group select {
+            background: var(--inset);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+            padding: 0.3rem 0.4rem;
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+        }
+        .track-option {
+            display: block;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.85rem;
+            padding: 0.15rem 0;
+        }
+        .tracks-actions { display: flex; justify-content: flex-end; }
+        tr.review-awaiting td { background: var(--warn-tint); }
+        tr.review-awaiting td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+        tr.review-set td { background: var(--success-tint); }
+        tr.review-set td:first-child { box-shadow: inset 3px 0 0 var(--success); }
     </style>
 </head>
 <body>
@@ -253,6 +382,16 @@
                 <button id="log-modal-close" class="secondary">✕</button>
             </div>
             <div id="log-modal-content"></div>
+        </div>
+    </div>
+
+    <div id="tracks-modal" class="modal-overlay" hidden>
+        <div class="modal">
+            <div class="modal-header">
+                <span>Track selection</span>
+                <button id="tracks-modal-close" class="secondary">✕</button>
+            </div>
+            <div id="tracks-modal-content"></div>
         </div>
     </div>
 </body>

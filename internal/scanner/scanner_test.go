@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -176,3 +177,72 @@ func TestScanDoesNotRequeueCompletedJobWithMissingOutput(t *testing.T) {
 		t.Errorf("expected file to be re-queued after history clear, got %d pending jobs", got)
 	}
 }
+
+// Files from a review watch are queued with review=1 and the probed track
+// listing stored as JSON; the prober runs once the file is stable. A failed
+// probe still queues the job, just without track details.
+func TestScanReviewWatchProbesAndStoresTracks(t *testing.T) {
+	watchDir := t.TempDir()
+	s, d := newTestScanner(t, watchDir)
+	s.config.Watch[0].Review = true
+
+	probes := 0
+	s.prober = func(path string) (string, error) {
+		probes++
+		return `{"tracks":[{"num":1,"type":"audio","language":"ita","dub":true},{"num":2,"type":"audio","language":"eng","original":true}]}`, nil
+	}
+
+	writeFile(t, filepath.Join(watchDir, "ep01.mkv"), 1024)
+	s.scan()
+	if got := pendingCount(t, d); got != 0 {
+		t.Fatalf("expected no jobs on first scan, got %d", got)
+	}
+	s.scan()
+
+	jobs, err := d.ListPendingJobs()
+	if err != nil {
+		t.Fatalf("list pending jobs: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if !jobs[0].Review {
+		t.Error("expected review=1 on the queued job")
+	}
+	if jobs[0].TracksJSON == nil || len(*jobs[0].TracksJSON) == 0 {
+		t.Error("expected tracks_json to be stored")
+	}
+	if probes != 1 {
+		t.Errorf("expected prober to run once, got %d", probes)
+	}
+	if jobs[0].AudioSelection != nil {
+		t.Error("expected no selection before UI review")
+	}
+}
+
+// A failing prober must not block queueing of review-watch files.
+func TestScanReviewWatchProbeFailureStillQueues(t *testing.T) {
+	watchDir := t.TempDir()
+	s, d := newTestScanner(t, watchDir)
+	s.config.Watch[0].Review = true
+	s.prober = func(path string) (string, error) {
+		return "", errProbeFailed
+	}
+
+	writeFile(t, filepath.Join(watchDir, "ep02.mkv"), 1024)
+	s.scan()
+	s.scan()
+
+	jobs, err := d.ListPendingJobs()
+	if err != nil {
+		t.Fatalf("list pending jobs: %v", err)
+	}
+	if len(jobs) != 1 || !jobs[0].Review {
+		t.Fatalf("expected 1 review job, got %v", jobs)
+	}
+	if jobs[0].TracksJSON != nil {
+		t.Errorf("expected no tracks_json on probe failure, got %v", *jobs[0].TracksJSON)
+	}
+}
+
+var errProbeFailed = errors.New("probe failed")

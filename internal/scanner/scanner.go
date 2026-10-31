@@ -12,6 +12,7 @@ import (
 
 	"github.com/jsvensson/brakelight/internal/config"
 	"github.com/jsvensson/brakelight/internal/db"
+	"github.com/jsvensson/brakelight/internal/probe"
 )
 
 var mediaExtensions = map[string]bool{
@@ -28,11 +29,29 @@ type Scanner struct {
 	config       *config.Service
 	pausedLogged bool
 	seen         map[string]int64
+	// prober returns the JSON track listing for a media file. It is a field
+	// so tests can substitute a fake.
+	prober func(path string) (string, error)
 }
 
 // New creates a new Scanner.
 func New(database *db.DB, cfg *config.Service) *Scanner {
-	return &Scanner{db: database, config: cfg}
+	return &Scanner{db: database, config: cfg, prober: defaultProber(cfg)}
+}
+
+// defaultProber probes a file with the configured ffprobe binary and returns
+// the track listing as JSON.
+func defaultProber(cfg *config.Service) func(path string) (string, error) {
+	return func(path string) (string, error) {
+		if len(cfg.Config.FFprobeCLI) == 0 {
+			return "", fmt.Errorf("ffprobe is not configured or not on PATH")
+		}
+		f, err := probe.Probe(context.Background(), cfg.Config.FFprobeCLI, path)
+		if err != nil {
+			return "", err
+		}
+		return f.Marshal()
+	}
 }
 
 // Run starts the scanner loop. It returns when ctx is cancelled.
@@ -189,16 +208,32 @@ func (s *Scanner) queueFile(path string, watch config.Watch) error {
 		return err
 	}
 
-	// Any existing job row for this filepath (pending, processing, completed,
-	// or failed) blocks re-queueing. A file whose output was moved away is
-	// only re-encoded once its history row is removed.
-	id, err := s.db.CreateJob(db.NewJob{
+	newJob := db.NewJob{
 		Filepath:   path,
 		Preset:     watch.Preset,
 		WatchName:  watch.Name,
 		OutputPath: outputPath,
 		Position:   pos,
-	})
+		Review:     watch.Review,
+	}
+
+	// Review-watch files are probed now, while the scanner has just confirmed
+	// the file is stable, so the track listing is ready when the job is shown
+	// in the UI. A failed probe is not fatal: the job is still queued and the
+	// UI falls back to rule-based selection without track details.
+	if watch.Review {
+		tracksJSON, err := s.prober(path)
+		if err != nil {
+			log.Warn("Failed to probe tracks, queueing without track details", "path", path, "err", err)
+		} else {
+			newJob.TracksJSON = tracksJSON
+		}
+	}
+
+	// Any existing job row for this filepath (pending, processing, completed,
+	// or failed) blocks re-queueing. A file whose output was moved away is
+	// only re-encoded once its history row is removed.
+	id, err := s.db.CreateJob(newJob)
 	if err != nil {
 		return err
 	}
@@ -219,4 +254,3 @@ func fileSize(path string) (int64, error) {
 	}
 	return info.Size(), nil
 }
-

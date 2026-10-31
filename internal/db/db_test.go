@@ -548,3 +548,83 @@ func TestListCompletedJobs(t *testing.T) {
 		t.Errorf("expected done.mkv, got %s", completed[0].Filepath)
 	}
 }
+
+// SetJobTrackSelection stores the audio/subtitle rules on a pending job and
+// they round-trip through GetJob; a review job becomes eligible for
+// NextPendingJob only once a selection exists.
+func TestJobTrackSelectionRoundTrip(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	pos, err := d.NextPosition()
+	if err != nil {
+		t.Fatalf("next position: %v", err)
+	}
+	id, err := d.CreateJob(NewJob{
+		Filepath:   "/media/review/ep01.mkv",
+		Preset:     "Standard",
+		WatchName:  "review",
+		OutputPath: "/media/encoded/ep01.mkv",
+		Position:   pos,
+		Review:     true,
+		TracksJSON: `{"tracks":[{"num":1,"type":"audio","language":"ita","dub":true},{"num":2,"type":"audio","language":"eng","original":true}]}`,
+	})
+	if err != nil || id == 0 {
+		t.Fatalf("create job: id=%d err=%v", id, err)
+	}
+
+	// Review job without selection is skipped by the worker's queue query.
+	if job, err := d.NextPendingJob(); err != nil || job != nil {
+		t.Errorf("expected no eligible job before selection, got %v err=%v", job, err)
+	}
+
+	if err := d.SetJobTrackSelection(id, "original", "all"); err != nil {
+		t.Fatalf("set selection: %v", err)
+	}
+
+	job, err := d.GetJob(id)
+	if err != nil || job == nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if !job.Review {
+		t.Error("expected review=true")
+	}
+	if job.AudioSelection == nil || *job.AudioSelection != "original" {
+		t.Errorf("expected audio_selection original, got %v", job.AudioSelection)
+	}
+	if job.SubtitleSelection == nil || *job.SubtitleSelection != "all" {
+		t.Errorf("expected subtitle_selection all, got %v", job.SubtitleSelection)
+	}
+	if job.TracksJSON == nil || len(*job.TracksJSON) == 0 {
+		t.Error("expected tracks_json to be stored")
+	}
+
+	// Now the job is eligible for encoding.
+	next, err := d.NextPendingJob()
+	if err != nil || next == nil || next.ID != id {
+		t.Errorf("expected job %d to be next pending after selection, got %v err=%v", id, next, err)
+	}
+}
+
+// A non-review pending job is eligible for NextPendingJob without any track
+// selection.
+func TestNextPendingJobIncludesNonReviewJobs(t *testing.T) {
+	d, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	pos, _ := d.NextPosition()
+	id, err := d.CreateJob(NewJob{Filepath: "/media/a.mkv", Preset: "P", WatchName: "w", OutputPath: "/out/a.mkv", Position: pos})
+	if err != nil || id == 0 {
+		t.Fatalf("create job: id=%d err=%v", id, err)
+	}
+	next, err := d.NextPendingJob()
+	if err != nil || next == nil || next.ID != id {
+		t.Errorf("expected job %d to be next pending, got %v err=%v", id, next, err)
+	}
+}

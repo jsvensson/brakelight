@@ -3,17 +3,21 @@ package config
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/hashicorp/hcl/v2/hclsimple"
 )
 
-// Watch maps a directory to a HandBrake preset.
+// Watch maps a directory to a HandBrake preset. When Review is true, files
+// from this watch are probed and queued as pending until track selections
+// are chosen in the UI.
 type Watch struct {
 	Name                  string   `hcl:",label"`
 	Path                  string   `hcl:"path"`
 	Preset                string   `hcl:"preset,optional"`
 	OutputDir             string   `hcl:"output_dir,optional"`
+	Review                bool     `hcl:"review,optional"`
 	PreCommands           []string `hcl:"pre_commands,optional"`
 	PostCommands          []string `hcl:"post_commands,optional"`
 	FailOnPreCommandError bool     `hcl:"fail_on_pre_command_error,optional"`
@@ -26,6 +30,7 @@ type Config struct {
 	DefaultPreset    string `hcl:"default_preset,optional"`
 	DBFile           string `hcl:"db_file,optional"`
 	HandBrakeCLI     string `hcl:"handbrake_cli,optional"`
+	FFprobeCLI       string `hcl:"ffprobe_cli,optional"`
 	LogFile          string `hcl:"log_file,optional"`
 	ScanInterval     string `hcl:"scan_interval,optional"`
 	PartialExtension string `hcl:"partial_extension,optional"`
@@ -85,6 +90,12 @@ func Load(path string) (*Service, error) {
 
 	if len(root.Config.HandBrakeCLI) > 0 {
 		root.Config.HandBrakeCLI = expandPath(root.Config.HandBrakeCLI)
+	}
+
+	if len(root.Config.FFprobeCLI) > 0 {
+		root.Config.FFprobeCLI = expandPath(root.Config.FFprobeCLI)
+	} else if path, err := exec.LookPath("ffprobe"); err == nil {
+		root.Config.FFprobeCLI = path
 	}
 
 	if len(root.Config.ScanInterval) == 0 {

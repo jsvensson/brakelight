@@ -12,22 +12,99 @@ import (
 
 // The HandBrakeCLI arguments embed a sidecar SRT as an English default
 // subtitle track when one is given; without a sidecar, no SRT flags are
-// added.
+// added. Without track selections, all audio and subtitle tracks are kept.
 func TestHandbrakeArgs(t *testing.T) {
 	w := &Worker{config: &config.Service{Config: &config.Config{UserPresets: "/presets.json"}}}
 
-	args := w.handbrakeArgs("/in/a.mkv", "/out/a.mkv", "Standard", "")
+	args := w.handbrakeArgs("/in/a.mkv", "/out/a.mkv", "Standard", "", true, nil, true, nil)
 	joined := strings.Join(args, " ")
 	if strings.Contains(joined, "--srt") {
 		t.Errorf("expected no srt flags without subtitle, got %v", args)
 	}
+	for _, want := range []string{"--all-audio", "--all-subtitles"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected args to contain %q: %v", args, want)
+		}
+	}
 
-	args = w.handbrakeArgs("/in/a.mkv", "/out/a.mkv", "Standard", "/in/a.srt")
+	args = w.handbrakeArgs("/in/a.mkv", "/out/a.mkv", "Standard", "/in/a.srt", true, nil, true, nil)
 	joined = strings.Join(args, " ")
 	for _, want := range []string{"--srt-file /in/a.srt", "--srt-lang eng", "--srt-default"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("expected args to contain %q: %v", want, args)
 		}
+	}
+}
+
+// Explicit track selections replace --all-audio/--all-subtitles with -a/-s
+// lists; an empty selection becomes "none".
+func TestHandbrakeArgsWithSelection(t *testing.T) {
+	w := &Worker{config: &config.Service{Config: &config.Config{UserPresets: "/presets.json"}}}
+
+	args := w.handbrakeArgs("/in/a.mkv", "/out/a.mkv", "Standard", "", false, []int{2}, false, []int{1, 3})
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "--all-audio") || strings.Contains(joined, "--all-subtitles") {
+		t.Errorf("expected no --all flags with explicit selection, got %v", args)
+	}
+	for _, want := range []string{"-a 2", "-s 1,3"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected args to contain %q: %v", want, args)
+		}
+	}
+
+	args = w.handbrakeArgs("/in/a.mkv", "/out/a.mkv", "Standard", "", false, nil, false, nil)
+	joined = strings.Join(args, " ")
+	for _, want := range []string{"-a none", "-s none"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected args to contain %q: %v", want, args)
+		}
+	}
+}
+
+// resolveSelection maps stored rules to track numbers using the job's probed
+// tracks. A nil or "all" rule, missing probe data, or a rule matching nothing
+// falls back to keeping all tracks.
+func TestResolveSelection(t *testing.T) {
+	tracksJSON := `{"tracks":[
+		{"num":1,"type":"audio","language":"ita","default":true,"dub":true},
+		{"num":2,"type":"audio","language":"eng","original":true},
+		{"num":1,"type":"subtitle","language":"ita","default":true},
+		{"num":2,"type":"subtitle","language":"eng"}
+	]}`
+
+	// nil rule keeps all
+	if all, nums := resolveSelection(nil, &tracksJSON, "audio"); !all || nums != nil {
+		t.Errorf("nil rule: expected all=true, got all=%v nums=%v", all, nums)
+	}
+
+	// "original" resolves to the English audio track via the original disposition
+	rule := "original"
+	if all, nums := resolveSelection(&rule, &tracksJSON, "audio"); all || len(nums) != 1 || nums[0] != 2 {
+		t.Errorf("original rule: expected all=false nums=[2], got all=%v nums=%v", all, nums)
+	}
+
+	// "tracks:1" resolves to the explicit track
+	rule = "tracks:1"
+	if all, nums := resolveSelection(&rule, &tracksJSON, "subtitle"); all || len(nums) != 1 || nums[0] != 1 {
+		t.Errorf("tracks:1 rule: expected all=false nums=[1], got all=%v nums=%v", all, nums)
+	}
+
+	// "none" selects nothing but is not the "all" fallback
+	rule = "none"
+	if all, nums := resolveSelection(&rule, &tracksJSON, "audio"); all || len(nums) != 0 {
+		t.Errorf("none rule: expected all=false nums=[], got all=%v nums=%v", all, nums)
+	}
+
+	// missing probe data falls back to all
+	rule = "original"
+	if all, _ := resolveSelection(&rule, nil, "audio"); !all {
+		t.Errorf("missing tracks: expected fallback all=true, got all=false")
+	}
+
+	// a rule matching nothing falls back to all
+	rule = "lang:deu"
+	if all, _ := resolveSelection(&rule, &tracksJSON, "audio"); !all {
+		t.Errorf("unmatched rule: expected fallback all=true, got all=false")
 	}
 }
 
