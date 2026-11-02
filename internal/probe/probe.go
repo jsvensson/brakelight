@@ -18,15 +18,17 @@ const probeTimeout = 30 * time.Second
 // Track is a single audio or subtitle stream. Num is the 1-based ordinal
 // within streams of the same type, matching HandBrakeCLI's -a/-s numbering.
 type Track struct {
-	Num      int    `json:"num"`
-	Type     string `json:"type"` // "audio" or "subtitle"
-	Codec    string `json:"codec,omitempty"`
-	Language string `json:"language,omitempty"`
-	Title    string `json:"title,omitempty"`
-	Default  bool   `json:"default,omitempty"`
-	Original bool   `json:"original,omitempty"`
-	Dub      bool   `json:"dub,omitempty"`
-	Comment  bool   `json:"comment,omitempty"`
+	Num             int    `json:"num"`
+	Type            string `json:"type"` // "audio" or "subtitle"
+	Codec           string `json:"codec,omitempty"`
+	Language        string `json:"language,omitempty"`
+	Title           string `json:"title,omitempty"`
+	Default         bool   `json:"default,omitempty"`
+	Original        bool   `json:"original,omitempty"`
+	Dub             bool   `json:"dub,omitempty"`
+	Forced          bool   `json:"forced,omitempty"`
+	HearingImpaired bool   `json:"hearing_impaired,omitempty"`
+	Comment         bool   `json:"comment,omitempty"`
 }
 
 // File is the probed track listing of a media file.
@@ -68,10 +70,12 @@ func Probe(ctx context.Context, ffprobePath, input string) (*File, error) {
 }
 
 type disposition struct {
-	Default  int `json:"default"`
-	Original int `json:"original"`
-	Dub      int `json:"dub"`
-	Comment  int `json:"comment"`
+	Default         int `json:"default"`
+	Original        int `json:"original"`
+	Dub             int `json:"dub"`
+	Forced          int `json:"forced"`
+	HearingImpaired int `json:"hearing_impaired"`
+	Comment         int `json:"comment"`
 }
 
 type rawStream struct {
@@ -105,15 +109,17 @@ func Parse(data []byte) (*File, error) {
 		}
 		seen[s.CodecType]++
 		f.Tracks = append(f.Tracks, Track{
-			Num:      seen[s.CodecType],
-			Type:     s.CodecType,
-			Codec:    s.CodecName,
-			Language: s.Tags["language"],
-			Title:    s.Tags["title"],
-			Default:  s.Disposition.Default == 1,
-			Original: s.Disposition.Original == 1,
-			Dub:      s.Disposition.Dub == 1,
-			Comment:  s.Disposition.Comment == 1,
+			Num:             seen[s.CodecType],
+			Type:            s.CodecType,
+			Codec:           s.CodecName,
+			Language:        s.Tags["language"],
+			Title:           s.Tags["title"],
+			Default:         s.Disposition.Default == 1,
+			Original:        s.Disposition.Original == 1,
+			Dub:             s.Disposition.Dub == 1,
+			Forced:          s.Disposition.Forced == 1,
+			HearingImpaired: s.Disposition.HearingImpaired == 1,
+			Comment:         s.Disposition.Comment == 1,
 		})
 	}
 
@@ -161,8 +167,9 @@ var iso6391to6392 = map[string]string{
 	"vi": "vie", "zh": "zho",
 }
 
-// Dispositions returns the track's disposition flags as lowercase labels in
-// a fixed order: default, original, dub, comment.
+// Dispositions returns the track's disposition flags as the ffprobe
+// disposition keys, in a fixed order: default, original, dub, forced,
+// hearing_impaired, comment.
 func (t Track) Dispositions() []string {
 	var out []string
 	if t.Default {
@@ -173,6 +180,12 @@ func (t Track) Dispositions() []string {
 	}
 	if t.Dub {
 		out = append(out, "dub")
+	}
+	if t.Forced {
+		out = append(out, "forced")
+	}
+	if t.HearingImpaired {
+		out = append(out, "hearing_impaired")
 	}
 	if t.Comment {
 		out = append(out, "comment")

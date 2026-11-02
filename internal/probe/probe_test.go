@@ -381,7 +381,8 @@ func TestLanguageName(t *testing.T) {
 }
 
 // Track.Dispositions lists the set disposition flags as labels in the fixed
-// order default, original, dub, comment; a track with no flags gets nil.
+// order default, original, dub, forced, hearing_impaired, comment; a track
+// with no flags gets nil.
 func TestTrackDispositions(t *testing.T) {
 	cases := []struct {
 		track Track
@@ -389,6 +390,7 @@ func TestTrackDispositions(t *testing.T) {
 	}{
 		{Track{Default: true, Dub: true}, []string{"default", "dub"}},
 		{Track{Original: true}, []string{"original"}},
+		{Track{Forced: true, HearingImpaired: true}, []string{"forced", "hearing_impaired"}},
 		{Track{Comment: true, Original: true, Default: true, Dub: true}, []string{"default", "original", "dub", "comment"}},
 		{Track{}, nil},
 	}
@@ -396,5 +398,34 @@ func TestTrackDispositions(t *testing.T) {
 		if got := tc.track.Dispositions(); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("Dispositions(%+v) = %v, want %v", tc.track, got, tc.want)
 		}
+	}
+}
+
+// Parse reads the forced and hearing_impaired disposition flags (used for
+// sign-only and SDH subtitle tracks) alongside title tags.
+func TestParseSubtitleDispositions(t *testing.T) {
+	f, err := Parse([]byte(`{
+		"streams": [
+			{"index": 1, "codec_type": "subtitle", "codec_name": "subrip",
+				"tags": {"language": "eng", "title": "English SDH"},
+				"disposition": {"hearing_impaired": 1}},
+			{"index": 2, "codec_type": "subtitle", "codec_name": "subrip",
+				"tags": {"language": "ita"},
+				"disposition": {"forced": 1}}
+		],
+		"format": {"tags": {}}
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	subs := f.TracksOfType("subtitle")
+	if len(subs) != 2 {
+		t.Fatalf("expected 2 subtitle tracks, got %v", subs)
+	}
+	if subs[0].Title != "English SDH" || !subs[0].HearingImpaired || subs[0].Forced {
+		t.Errorf("unexpected SDH track: %+v", subs[0])
+	}
+	if !subs[1].Forced || subs[1].HearingImpaired {
+		t.Errorf("unexpected forced track: %+v", subs[1])
 	}
 }

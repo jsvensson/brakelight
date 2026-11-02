@@ -387,7 +387,7 @@ func TestTracksFormShowsLanguageNamesAndDispositions(t *testing.T) {
 		OutputPath: "/out/ep01.mkv",
 		Position:   pos,
 		Review:     true,
-		TracksJSON: `{"tracks":[{"num":1,"type":"audio","language":"eng","original":true},{"num":1,"type":"subtitle","language":"eng","original":true},{"num":2,"type":"subtitle","language":"swe","dub":true},{"num":3,"type":"subtitle","language":"und","comment":true},{"num":4,"type":"subtitle","language":"xyz"}]}`,
+		TracksJSON: `{"tracks":[{"num":1,"type":"audio","language":"eng","original":true},{"num":1,"type":"subtitle","language":"eng","original":true},{"num":2,"type":"subtitle","language":"swe","dub":true},{"num":3,"type":"subtitle","language":"und","comment":true},{"num":4,"type":"subtitle","language":"xyz"},{"num":5,"type":"subtitle","language":"eng","title":"English SDH","hearing_impaired":true},{"num":6,"type":"subtitle","language":"ita","forced":true}]}`,
 	})
 	if err != nil || id == 0 {
 		t.Fatalf("create review job: id=%d err=%v", id, err)
@@ -408,6 +408,9 @@ func TestTracksFormShowsLanguageNamesAndDispositions(t *testing.T) {
 		"(original)",
 		"(dub)",
 		"(comment)",
+		"&middot; English SDH",
+		"(hearing_impaired)",
+		"Italian (ita) (forced)",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("expected picker to contain %q:\n%s", want, body)
