@@ -304,6 +304,13 @@
             font-weight: 600;
         }
         .modal .log-output { max-height: 60vh; }
+        /* The modal caps at 80vh; the track picker content must scroll
+           within it (min-height: 0 lets the flex child shrink below its
+           content so overflow-y applies) instead of overflowing off-screen. */
+        #tracks-modal-content {
+            overflow-y: auto;
+            min-height: 0;
+        }
         .bulk-bar {
             display: flex;
             flex-wrap: wrap;
