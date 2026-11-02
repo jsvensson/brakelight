@@ -354,3 +354,47 @@ func TestProbeRealFile(t *testing.T) {
 		t.Errorf("expected original rule to select [2], got %v ok=%v", nums, ok)
 	}
 }
+
+// LanguageName resolves ISO 639-2 codes, ISO 639-1 codes, and region-qualified
+// tags to English names, and returns "" for unknown codes.
+func TestLanguageName(t *testing.T) {
+	cases := []struct {
+		lang string
+		want string
+	}{
+		{"eng", "English"},
+		{"en", "English"},
+		{"EN", "English"},
+		{"pt-BR", "Portuguese"},
+		{"fre", "French"},
+		{"fra", "French"},
+		{"dut", "Dutch"},
+		{"und", "Undetermined"},
+		{"xyz", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := LanguageName(tc.lang); got != tc.want {
+			t.Errorf("LanguageName(%q) = %q, want %q", tc.lang, got, tc.want)
+		}
+	}
+}
+
+// Track.Dispositions lists the set disposition flags as labels in the fixed
+// order default, original, dub, comment; a track with no flags gets nil.
+func TestTrackDispositions(t *testing.T) {
+	cases := []struct {
+		track Track
+		want  []string
+	}{
+		{Track{Default: true, Dub: true}, []string{"default", "dub"}},
+		{Track{Original: true}, []string{"original"}},
+		{Track{Comment: true, Original: true, Default: true, Dub: true}, []string{"default", "original", "dub", "comment"}},
+		{Track{}, nil},
+	}
+	for _, tc := range cases {
+		if got := tc.track.Dispositions(); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Dispositions(%+v) = %v, want %v", tc.track, got, tc.want)
+		}
+	}
+}

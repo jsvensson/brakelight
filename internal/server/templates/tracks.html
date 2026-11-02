@@ -18,7 +18,7 @@
             {{ range .AudioTracks }}
             <label class="track-option">
                 <input type="checkbox" name="audio_tracks" value="{{ .Num }}" {{ if index $.AudioChecks .Num }}checked{{ end }}>
-                #{{ .Num }} {{ if .Language }}{{ .Language }}{{ else }}und{{ end }}{{ if .Codec }} &middot; {{ .Codec }}{{ end }}{{ if .Title }} &middot; {{ .Title }}{{ end }}{{ if .Default }} (default){{ end }}{{ if .Original }} (original){{ end }}{{ if .Dub }} (dub){{ end }}
+                #{{ .Num }} {{ langName .Language }}{{ if .Codec }} &middot; {{ .Codec }}{{ end }}{{ if .Title }} &middot; {{ .Title }}{{ end }}{{ range .Dispositions }} ({{ . }}){{ end }}
             </label>
             {{ end }}
         </div>
@@ -33,7 +33,7 @@
             {{ range .SubTracks }}
             <label class="track-option">
                 <input type="checkbox" name="subtitle_tracks" value="{{ .Num }}" {{ if index $.SubChecks .Num }}checked{{ end }}>
-                #{{ .Num }} {{ if .Language }}{{ .Language }}{{ else }}und{{ end }}{{ if .Title }} &middot; {{ .Title }}{{ end }}{{ if .Default }} (default){{ end }}{{ if .Comment }} (comment){{ end }}
+                #{{ .Num }} {{ langName .Language }}{{ if .Title }} &middot; {{ .Title }}{{ end }}{{ range .Dispositions }} ({{ . }}){{ end }}
             </label>
             {{ end }}
         </div>
