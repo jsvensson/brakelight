@@ -597,8 +597,22 @@ func parseTemplates() (*template.Template, error) {
 		"base":            filepath.Base,
 		"add":             func(a, b int) int { return a + b },
 		"sub":             func(a, b int) int { return a - b },
+		"langName":        langName,
 	}
 	return template.New("index.html").Funcs(funcMap).ParseFS(assets, "templates/index.html", "templates/queue.html", "templates/progress.html", "templates/log.html", "templates/tracks.html")
+}
+
+// langName renders a track language as its full English name with the raw tag
+// in parentheses ("English (eng)"), falling back to the raw tag when the
+// language is unknown, and to "und" when the track has no language tag.
+func langName(lang string) string {
+	if len(lang) == 0 {
+		return "und"
+	}
+	if name := probe.LanguageName(lang); len(name) > 0 {
+		return fmt.Sprintf("%s (%s)", name, lang)
+	}
+	return lang
 }
 
 func formatTime(t *time.Time) string {

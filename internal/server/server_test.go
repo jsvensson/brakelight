@@ -364,6 +364,60 @@ func TestTracksFormUsesConfiguredSubtitleRule(t *testing.T) {
 	}
 }
 
+// The track picker renders each track's language as the full English name with
+// the raw tag in parentheses (falling back to the raw tag for unknown codes),
+// and lists every set disposition flag on both audio and subtitle rows.
+func TestTracksFormShowsLanguageNamesAndDispositions(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	s := New(d, &config.Service{Config: &config.Config{}}, &worker.Progress{})
+
+	pos, err := d.NextPosition()
+	if err != nil {
+		t.Fatalf("next position: %v", err)
+	}
+	id, err := d.CreateJob(db.NewJob{
+		Filepath:   "/media/review/ep01.mkv",
+		Preset:     "Standard",
+		WatchName:  "review",
+		OutputPath: "/out/ep01.mkv",
+		Position:   pos,
+		Review:     true,
+		TracksJSON: `{"tracks":[{"num":1,"type":"audio","language":"eng","original":true},{"num":1,"type":"subtitle","language":"eng","original":true},{"num":2,"type":"subtitle","language":"swe","dub":true},{"num":3,"type":"subtitle","language":"und","comment":true},{"num":4,"type":"subtitle","language":"xyz"},{"num":5,"type":"subtitle","language":"eng","title":"English SDH","hearing_impaired":true},{"num":6,"type":"subtitle","language":"ita","forced":true}]}`,
+	})
+	if err != nil || id == 0 {
+		t.Fatalf("create review job: id=%d err=%v", id, err)
+	}
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/queue/%d/tracks", id), nil)
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"English (eng)",
+		"Swedish (swe)",
+		"Undetermined (und)",
+		"#4 xyz",
+		"(original)",
+		"(dub)",
+		"(comment)",
+		"&middot; English SDH",
+		"(hearing_impaired)",
+		"Italian (ita) (forced)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected picker to contain %q:\n%s", want, body)
+		}
+	}
+}
+
 // Saving the picker stores the rules on the job, which then becomes eligible
 // for encoding; a custom track selection is stored as "tracks:n,m".
 func TestTracksSaveEndpoint(t *testing.T) {

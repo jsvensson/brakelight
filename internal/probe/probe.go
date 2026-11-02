@@ -18,15 +18,17 @@ const probeTimeout = 30 * time.Second
 // Track is a single audio or subtitle stream. Num is the 1-based ordinal
 // within streams of the same type, matching HandBrakeCLI's -a/-s numbering.
 type Track struct {
-	Num      int    `json:"num"`
-	Type     string `json:"type"` // "audio" or "subtitle"
-	Codec    string `json:"codec,omitempty"`
-	Language string `json:"language,omitempty"`
-	Title    string `json:"title,omitempty"`
-	Default  bool   `json:"default,omitempty"`
-	Original bool   `json:"original,omitempty"`
-	Dub      bool   `json:"dub,omitempty"`
-	Comment  bool   `json:"comment,omitempty"`
+	Num             int    `json:"num"`
+	Type            string `json:"type"` // "audio" or "subtitle"
+	Codec           string `json:"codec,omitempty"`
+	Language        string `json:"language,omitempty"`
+	Title           string `json:"title,omitempty"`
+	Default         bool   `json:"default,omitempty"`
+	Original        bool   `json:"original,omitempty"`
+	Dub             bool   `json:"dub,omitempty"`
+	Forced          bool   `json:"forced,omitempty"`
+	HearingImpaired bool   `json:"hearing_impaired,omitempty"`
+	Comment         bool   `json:"comment,omitempty"`
 }
 
 // File is the probed track listing of a media file.
@@ -68,10 +70,12 @@ func Probe(ctx context.Context, ffprobePath, input string) (*File, error) {
 }
 
 type disposition struct {
-	Default  int `json:"default"`
-	Original int `json:"original"`
-	Dub      int `json:"dub"`
-	Comment  int `json:"comment"`
+	Default         int `json:"default"`
+	Original        int `json:"original"`
+	Dub             int `json:"dub"`
+	Forced          int `json:"forced"`
+	HearingImpaired int `json:"hearing_impaired"`
+	Comment         int `json:"comment"`
 }
 
 type rawStream struct {
@@ -105,15 +109,17 @@ func Parse(data []byte) (*File, error) {
 		}
 		seen[s.CodecType]++
 		f.Tracks = append(f.Tracks, Track{
-			Num:      seen[s.CodecType],
-			Type:     s.CodecType,
-			Codec:    s.CodecName,
-			Language: s.Tags["language"],
-			Title:    s.Tags["title"],
-			Default:  s.Disposition.Default == 1,
-			Original: s.Disposition.Original == 1,
-			Dub:      s.Disposition.Dub == 1,
-			Comment:  s.Disposition.Comment == 1,
+			Num:             seen[s.CodecType],
+			Type:            s.CodecType,
+			Codec:           s.CodecName,
+			Language:        s.Tags["language"],
+			Title:           s.Tags["title"],
+			Default:         s.Disposition.Default == 1,
+			Original:        s.Disposition.Original == 1,
+			Dub:             s.Disposition.Dub == 1,
+			Forced:          s.Disposition.Forced == 1,
+			HearingImpaired: s.Disposition.HearingImpaired == 1,
+			Comment:         s.Disposition.Comment == 1,
 		})
 	}
 
@@ -161,6 +167,32 @@ var iso6391to6392 = map[string]string{
 	"vi": "vie", "zh": "zho",
 }
 
+// Dispositions returns the track's disposition flags as the ffprobe
+// disposition keys, in a fixed order: default, original, dub, forced,
+// hearing_impaired, comment.
+func (t Track) Dispositions() []string {
+	var out []string
+	if t.Default {
+		out = append(out, "default")
+	}
+	if t.Original {
+		out = append(out, "original")
+	}
+	if t.Dub {
+		out = append(out, "dub")
+	}
+	if t.Forced {
+		out = append(out, "forced")
+	}
+	if t.HearingImpaired {
+		out = append(out, "hearing_impaired")
+	}
+	if t.Comment {
+		out = append(out, "comment")
+	}
+	return out
+}
+
 // NormalizeLanguage lowercases a language tag, drops any region subtag
 // ("pt-BR" -> "pt"), and converts ISO 639-1 codes to ISO 639-2 so that
 // MP4-style "en" and MKV-style "eng" compare equal.
@@ -179,6 +211,77 @@ func NormalizeLanguage(lang string) string {
 		}
 	}
 	return lang
+}
+
+// languageNames maps ISO 639-2 codes (both bibliographic and terminologic
+// variants where they differ) to English language names.
+var languageNames = map[string]string{
+	"alb": "Albanian", "sqi": "Albanian",
+	"ara": "Arabic",
+	"arm": "Armenian", "hye": "Armenian",
+	"aze": "Azerbaijani",
+	"baq": "Basque", "eus": "Basque",
+	"bel": "Belarusian",
+	"ben": "Bengali",
+	"bul": "Bulgarian",
+	"bur": "Burmese", "mya": "Burmese",
+	"cat": "Catalan",
+	"chi": "Chinese", "zho": "Chinese",
+	"cze": "Czech", "ces": "Czech",
+	"dan": "Danish",
+	"dut": "Dutch", "nld": "Dutch",
+	"eng": "English",
+	"est": "Estonian",
+	"fin": "Finnish",
+	"fre": "French", "fra": "French",
+	"ger": "German", "deu": "German",
+	"gre": "Greek", "ell": "Greek",
+	"heb": "Hebrew",
+	"hin": "Hindi",
+	"hrv": "Croatian",
+	"hun": "Hungarian",
+	"ice": "Icelandic", "isl": "Icelandic",
+	"ind": "Indonesian",
+	"ita": "Italian",
+	"jpn": "Japanese",
+	"kat": "Georgian", "geo": "Georgian",
+	"kaz": "Kazakh",
+	"khm": "Khmer",
+	"kor": "Korean",
+	"kur": "Kurdish",
+	"lao": "Lao",
+	"lav": "Latvian",
+	"lit": "Lithuanian",
+	"mac": "Macedonian", "mkd": "Macedonian",
+	"may": "Malay", "msa": "Malay",
+	"nor": "Norwegian", "nob": "Norwegian", "nno": "Norwegian",
+	"per": "Persian", "fas": "Persian",
+	"pol": "Polish",
+	"por": "Portuguese",
+	"rum": "Romanian", "ron": "Romanian",
+	"rus": "Russian",
+	"slo": "Slovak", "slk": "Slovak",
+	"slv": "Slovenian",
+	"spa": "Spanish",
+	"srp": "Serbian",
+	"swe": "Swedish",
+	"tam": "Tamil",
+	"tel": "Telugu",
+	"tgl": "Tagalog",
+	"tha": "Thai",
+	"tur": "Turkish",
+	"ukr": "Ukrainian",
+	"und": "Undetermined",
+	"urd": "Urdu",
+	"vie": "Vietnamese",
+	"wel": "Welsh", "cym": "Welsh",
+}
+
+// LanguageName returns the English name of a language tag, normalizing
+// ISO 639-1 codes and region subtags first ("en" and "pt-BR" resolve like
+// NormalizeLanguage). It returns "" for unknown codes.
+func LanguageName(lang string) string {
+	return languageNames[NormalizeLanguage(lang)]
 }
 
 // OriginalLanguage determines the file's original audio language: the
