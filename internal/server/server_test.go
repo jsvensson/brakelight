@@ -454,6 +454,29 @@ func TestBulkTracksEndpoint(t *testing.T) {
 	}
 }
 
+// The index page styles the track picker modal content as scrollable within
+// the 80vh modal, so a file with many subtitle tracks cannot overflow the
+// modal off-screen.
+func TestIndexPageTracksModalScrollable(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	s := New(d, &config.Service{Config: &config.Config{}}, &worker.Progress{})
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "#tracks-modal-content") || !strings.Contains(body, "overflow-y: auto") {
+		t.Errorf("expected index page to make #tracks-modal-content scrollable")
+	}
+}
+
 // Review rows carry a row-level class so their state is visible at a glance:
 // review-awaiting (amber) before a selection exists, review-set (green) after.
 func TestQueueFragmentReviewRowClasses(t *testing.T) {
