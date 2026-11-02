@@ -7,17 +7,22 @@ import (
 	"path/filepath"
 
 	"github.com/hashicorp/hcl/v2/hclsimple"
+
+	"github.com/jsvensson/brakelight/internal/probe"
 )
 
 // Watch maps a directory to a HandBrake preset. When Review is true, files
 // from this watch are probed and queued as pending until track selections
-// are chosen in the UI.
+// are chosen in the UI. SubtitleRule is the selection rule pre-filled in
+// the track picker for this watch's jobs; empty means the built-in default
+// ("original" when the file's original language is known, else "all").
 type Watch struct {
 	Name                  string   `hcl:",label"`
 	Path                  string   `hcl:"path"`
 	Preset                string   `hcl:"preset,optional"`
 	OutputDir             string   `hcl:"output_dir,optional"`
 	Review                bool     `hcl:"review,optional"`
+	SubtitleRule          string   `hcl:"subtitle_rule,optional"`
 	PreCommands           []string `hcl:"pre_commands,optional"`
 	PostCommands          []string `hcl:"post_commands,optional"`
 	FailOnPreCommandError bool     `hcl:"fail_on_pre_command_error,optional"`
@@ -36,6 +41,7 @@ type Config struct {
 	PartialExtension string `hcl:"partial_extension,optional"`
 	MaxAttempts      int    `hcl:"max_attempts,optional"`
 	ListenAddr       string `hcl:"listen_addr,optional"`
+	SubtitleRule     string `hcl:"subtitle_rule,optional"`
 }
 
 // Root is the top-level HCL structure.
@@ -114,6 +120,10 @@ func Load(path string) (*Service, error) {
 		root.Config.ListenAddr = ":8080"
 	}
 
+	if len(root.Config.SubtitleRule) > 0 && !probe.ValidRule(root.Config.SubtitleRule) {
+		return nil, fmt.Errorf("config.subtitle_rule %q is not a valid rule (want \"all\", \"none\", \"original\", \"lang:eng,ita\", or \"tracks:1,3\")", root.Config.SubtitleRule)
+	}
+
 	if len(root.Watch) == 0 {
 		return nil, fmt.Errorf("at least one 'watch' block is required")
 	}
@@ -130,6 +140,11 @@ func Load(path string) (*Service, error) {
 			root.Watch[i].OutputDir = root.Config.OutputDir
 		} else {
 			root.Watch[i].OutputDir = expandPath(w.OutputDir)
+		}
+		if len(root.Watch[i].SubtitleRule) == 0 {
+			root.Watch[i].SubtitleRule = root.Config.SubtitleRule
+		} else if !probe.ValidRule(root.Watch[i].SubtitleRule) {
+			return nil, fmt.Errorf("watch %q: subtitle_rule %q is not a valid rule (want \"all\", \"none\", \"original\", \"lang:eng,ita\", or \"tracks:1,3\")", w.Name, root.Watch[i].SubtitleRule)
 		}
 	}
 
@@ -174,6 +189,16 @@ func (s *Service) WatchByName(name string) *Watch {
 		}
 	}
 	return nil
+}
+
+// SubtitleRuleForWatch returns the configured subtitle selection rule for the
+// given watch name (already inherited from the config block when the watch
+// did not set its own), or "" when the watch is unknown or no rule is set.
+func (s *Service) SubtitleRuleForWatch(name string) string {
+	if w := s.WatchByName(name); w != nil {
+		return w.SubtitleRule
+	}
+	return ""
 }
 
 func expandPath(path string) string {

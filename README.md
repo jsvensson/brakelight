@@ -12,7 +12,7 @@
 - Retry failed jobs, or cancel pending ones.
 - Keeps job history and HandBrake output for debugging.
 - Embeds sidecar subtitles: if `a.srt` exists next to `a.mkv`, it is added to the output as an English subtitle track and marked as default.
-- Review watches (`review = true`): files are probed with ffprobe when queued and wait in the queue until you pick their audio/subtitle tracks in the web UI, per file or in bulk for all checked files. The picker pre-selects the original-language audio track when the file marks one (e.g. an English original with an Italian default dub keeps only English). Selections are stored as rules (`all`, `none`, `original`, `lang:eng`, `tracks:1,3`) and resolved per file at encode time; if a rule matches nothing, all tracks are kept. Jobs from review watches are not encoded before a selection is made.
+- Review watches (`review = true`): files are probed with ffprobe when queued and wait in the queue until you pick their audio/subtitle tracks in the web UI, per file or in bulk for all checked files. The picker pre-selects the original-language audio track when the file marks one (e.g. an English original with an Italian default dub keeps only English). Subtitles are pre-selected per the `subtitle_rule` setting (config-wide, overridable per watch; unset means original language when known, else all). Selections are stored as rules (`all`, `none`, `original`, `lang:eng`, `tracks:1,3`) and resolved per file at encode time; if a rule matches nothing, all tracks are kept. Jobs from review watches are not encoded before a selection is made.
 - Pause/resume the service from the UI; pausing stops new scans and conversions while letting the active encode finish. The state persists across restarts.
 
 ## Build
@@ -43,6 +43,13 @@ config {
   # Optional: default preset for watch blocks without an explicit preset.
   default_preset    = "Standard"
 
+  # Optional: subtitle selection rule pre-filled in the track picker of
+  # review-watch jobs without a stored selection: "all", "none", "original",
+  # "lang:eng,ita", or "tracks:1,3". Watch blocks inherit this value unless
+  # they set their own subtitle_rule.
+  # Default: "original" when the file's original language is known, else "all".
+  # subtitle_rule     = "all"
+
   # Optional: custom location for the queue database.
   db_file           = "/data/brakelight/myqueue.db"
 }
@@ -54,10 +61,16 @@ watch "General" {
 }
 
 # A review watch: queued files are probed and wait for a per-file (or bulk)
-# audio/subtitle track selection in the web UI before encoding.
+# audio/subtitle track selection in the web UI before encoding. The
+# subtitle picker pre-selects config.subtitle_rule (inherited) unless this
+# watch sets its own subtitle_rule.
 watch "Review" {
   path   = "/media/queue/review"
   review = true
+
+  # Optional: subtitle rule for this watch only, overriding
+  # config.subtitle_rule.
+  # subtitle_rule = "lang:eng,swe"
 }
 
 watch "Animated" {

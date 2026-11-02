@@ -15,6 +15,13 @@ config {
   # Optional: default preset for watch blocks without an explicit preset.
   default_preset    = "Standard"
 
+  # Optional: subtitle selection rule pre-filled in the track picker of
+  # review-watch jobs that have no stored selection yet. One of "all",
+  # "none", "original", "lang:eng,ita", "tracks:1,3". Watch blocks inherit
+  # this value unless they set their own subtitle_rule.
+  # Default: "original" when the file's original language is known, else "all".
+  # subtitle_rule     = "all"
+
   # Optional: custom location for the queue database.
   db_file           = "/data/brakelight/myqueue.db"
 }
@@ -27,10 +34,15 @@ watch "General" {
 # A review watch: files are probed with ffprobe when queued, and the encode
 # waits until audio/subtitle tracks are chosen per file (or in bulk) in the
 # web UI. The UI pre-selects the original-language audio track when the file
-# marks one. Default: false.
+# marks one, and the subtitle rule from config.subtitle_rule (or this watch's
+# own subtitle_rule) when set. Default: false.
 watch "Review" {
   path   = "/media/review"
   review = true
+
+  # Optional: subtitle rule for this watch only, overriding
+  # config.subtitle_rule.
+  # subtitle_rule = "lang:eng,swe"
 }
 
 watch "Animated" {

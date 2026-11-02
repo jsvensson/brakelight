@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -412,6 +413,109 @@ watch "plain" {
 	}
 	if svc.Watch[1].Review {
 		t.Error("expected review to default to false")
+	}
+}
+
+// A watch without an explicit subtitle_rule inherits the config's
+// subtitle_rule, a watch with its own keeps it, and when neither sets one
+// the rule stays empty so the review picker falls back to its built-in
+// default. SubtitleRuleForWatch reports the effective rule per watch name.
+func TestWatchSubtitleRuleInheritance(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+  subtitle_rule = "lang:eng,swe"
+}
+
+watch "inherits" {
+  path   = "/media/review"
+  preset = "Standard"
+}
+
+watch "overrides" {
+  path          = "/media/other"
+  preset        = "Standard"
+  subtitle_rule = "all"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if got := svc.Watch[0].SubtitleRule; got != "lang:eng,swe" {
+		t.Errorf("expected watch to inherit subtitle_rule lang:eng,swe, got %q", got)
+	}
+	if got := svc.Watch[1].SubtitleRule; got != "all" {
+		t.Errorf("expected watch's own subtitle_rule all, got %q", got)
+	}
+	if got := svc.SubtitleRuleForWatch("inherits"); got != "lang:eng,swe" {
+		t.Errorf("SubtitleRuleForWatch(inherits) = %q, want lang:eng,swe", got)
+	}
+	if got := svc.SubtitleRuleForWatch("missing"); got != "" {
+		t.Errorf("SubtitleRuleForWatch(missing) = %q, want empty", got)
+	}
+}
+
+// When neither the config nor the watch sets subtitle_rule, the effective
+// rule is empty and the review picker keeps its built-in default behavior.
+func TestSubtitleRuleOmitted(t *testing.T) {
+	path := writeConfig(t, `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+}
+
+watch "review" {
+  path   = "/media/review"
+  preset = "Standard"
+}
+`)
+
+	svc, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if got := svc.Config.SubtitleRule; got != "" {
+		t.Errorf("expected empty config subtitle_rule, got %q", got)
+	}
+	if got := svc.Watch[0].SubtitleRule; got != "" {
+		t.Errorf("expected empty watch subtitle_rule, got %q", got)
+	}
+}
+
+// An invalid subtitle_rule fails loading, both at config level and when set
+// on a watch block.
+func TestSubtitleRuleValidation(t *testing.T) {
+	base := `
+config {
+  output_dir   = "/media/encoded"
+  user_presets = "/presets.json"
+  %s
+}
+
+watch "review" {
+  path   = "/media/review"
+  preset = "Standard"
+  %s
+}
+`
+	cases := []struct {
+		name       string
+		configRule string
+		watchRule  string
+	}{
+		{"invalid config rule", `subtitle_rule = "bogus"`, ""},
+		{"invalid watch rule", "", `subtitle_rule = "lang:"`},
+	}
+	for _, tc := range cases {
+		path := writeConfig(t, fmt.Sprintf(base, tc.configRule, tc.watchRule))
+		if _, err := Load(path); err == nil {
+			t.Errorf("%s: expected load error, got nil", tc.name)
+		}
 	}
 }
 

@@ -244,8 +244,9 @@ type tracksView struct {
 }
 
 // handleTracksForm renders the track picker for a pending review job. The
-// picker is pre-filled with the stored selection, or with the "original
-// language" suggestion when nothing is stored yet.
+// picker is pre-filled with the stored selection, or — when nothing is
+// stored yet — with the watch's configured subtitle_rule when set, and
+// otherwise with the "original language" suggestion.
 func (s *Server) handleTracksForm(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -272,6 +273,8 @@ func (s *Server) handleTracksForm(w http.ResponseWriter, r *http.Request) {
 	subRule := tracks.DefaultRule("subtitle")
 	if job.SubtitleSelection != nil {
 		subRule = *job.SubtitleSelection
+	} else if rule := s.config.SubtitleRuleForWatch(job.WatchName); len(rule) > 0 {
+		subRule = rule
 	}
 
 	renderTemplate(w, "templates/tracks.html", tracksView{
