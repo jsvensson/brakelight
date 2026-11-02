@@ -315,6 +315,55 @@ func TestTracksFormEndpoint(t *testing.T) {
 	}
 }
 
+// When the job's watch configures subtitle_rule, the track picker pre-fills
+// the subtitle select with that rule instead of the built-in "original"
+// default; a selection already stored on the job still wins over the config.
+func TestTracksFormUsesConfiguredSubtitleRule(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer d.Close()
+
+	cfg := &config.Service{
+		Config: &config.Config{},
+		Watch:  []config.Watch{{Name: "review", SubtitleRule: "none"}},
+	}
+	s := New(d, cfg, &worker.Progress{})
+
+	// No stored selection: the configured "none" rule pre-fills the picker,
+	// so no subtitle track box is checked.
+	id := newReviewJob(t, d, "/media/review/ep01.mkv")
+	req := httptest.NewRequest("GET", fmt.Sprintf("/queue/%d/tracks", id), nil)
+	rec := httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `value="none" selected`) {
+		t.Errorf("expected subtitle select pre-filled with none:\n%s", body)
+	}
+	if strings.Contains(body, `name="subtitle_tracks" value="1" checked`) || strings.Contains(body, `name="subtitle_tracks" value="2" checked`) {
+		t.Errorf("expected no subtitle track checked for rule none:\n%s", body)
+	}
+
+	// A stored selection overrides the configured rule.
+	if err := d.SetJobTrackSelection(id, "original", "all"); err != nil {
+		t.Fatalf("set selection: %v", err)
+	}
+	req = httptest.NewRequest("GET", fmt.Sprintf("/queue/%d/tracks", id), nil)
+	rec = httptest.NewRecorder()
+	s.srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body = rec.Body.String()
+	if !strings.Contains(body, `value="all" selected`) {
+		t.Errorf("expected stored selection all to win over configured none:\n%s", body)
+	}
+}
+
 // Saving the picker stores the rules on the job, which then becomes eligible
 // for encoding; a custom track selection is stored as "tracks:n,m".
 func TestTracksSaveEndpoint(t *testing.T) {
